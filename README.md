@@ -14,8 +14,29 @@ Civic issue reporting and escalation: citizens file neighbourhood problems, offi
 | Auth | JWT access + refresh, bcrypt, roles: `CITIZEN`, `OFFICER`, `ADMIN`, `ADMIN_L2`, `ADMIN_L3` |
 | Maps & weather | Google Maps Platform (browser key + server Weather API key) |
 | AI | Gemini / Vertex AI (classification) |
+## Important Credentials
 
-No Node/Express backend. No Supabase.
+# CiviCon Demo Accounts
+
+## Accounts (Email → Password → Role)
+
+| Email | Password | Role | Level |
+|---|---|---|---|
+| l1.wardnorth@example.com | CiviconDemo1 | OFFICER (ward north) | L1 |
+| l1.wardsouth@example.com | CiviconDemo1 | OFFICER (ward south) | L1 |
+| l2.regional@example.com | CiviconDemo1 | ADMIN_L2 (regional) | L2 |
+| l3.municipal@example.com | CiviconDemo1 | ADMIN_L3 (municipal) | L3 |
+| citizen.one@example.com | CiviconDemo1 | CITIZEN | — |
+| citizen.two@example.com | CiviconDemo1 | CITIZEN | — |
+
+## Role Hierarchy
+
+- **L1:** Ward Officer
+- **L2:** Regional Admin
+- **L3:** Municipal Admin
+- **CITIZEN:** Citizen reporting civic incidents
+
+After giving a locality, use **Inner Municipal Service Area** as **Pallavaram, Tamilnadu, India** to see relevant mappings (Demo Limitation)
 
 ## Local setup
 
