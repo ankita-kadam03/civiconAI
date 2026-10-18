@@ -36,9 +36,8 @@ async def lifespan(_app: FastAPI):
     ai_service.reload_from_settings()
     bigquery_analytics.connect()
     warnings = assert_required_integrations(strict=settings.integration_startup_strict)
-    if warnings and not settings.integration_startup_strict:
-        for w in warnings:
-            log.warning("integration_warning %s", w)
+    for w in warnings:
+        log.error("integration_startup %s", w)
     try:
         n = bigquery_analytics.backfill_from_db(database)
         if n:

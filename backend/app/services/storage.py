@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import os
 from pathlib import Path
 from typing import Any
 
@@ -8,7 +9,24 @@ from app.config import BACKEND_DIR, get_settings
 from app.domain.files import random_object_key, validate_upload
 
 log = logging.getLogger("civicon.storage")
-UPLOAD_ROOT = BACKEND_DIR / "uploads"
+
+
+def _writable_upload_root() -> Path:
+    env_dir = (os.environ.get("CIVICON_UPLOAD_DIR") or "").strip()
+    candidates = []
+    if env_dir:
+        candidates.append(Path(env_dir))
+    candidates.extend([BACKEND_DIR / "uploads", Path("/tmp/civicon-uploads")])
+    for root in candidates:
+        try:
+            root.mkdir(parents=True, exist_ok=True)
+            probe = root / ".write_probe"
+            probe.write_bytes(b"1")
+            probe.unlink(missing_ok=True)
+            return root
+        except OSError:
+            continue
+    return Path("/tmp/civicon-uploads")
 
 
 class StorageService:
@@ -18,6 +36,7 @@ class StorageService:
         self.error: str | None = None
         self._client: Any = None
         self._bucket: Any = None
+        self.upload_root = _writable_upload_root()
         settings = get_settings()
         if settings.gcs_bucket:
             try:
@@ -28,11 +47,11 @@ class StorageService:
                 self._bucket.reload()
                 self.mode = "gcs"
                 self.bucket_name = settings.gcs_bucket
+                self.error = None
             except Exception as exc:  # noqa: BLE001
                 self.mode = "local"
                 self.error = type(exc).__name__
                 log.warning("gcs_unavailable fallback=local error=%s", type(exc).__name__)
-        UPLOAD_ROOT.mkdir(parents=True, exist_ok=True)
 
     def save(self, data: bytes, content_type: str, original_name: str, prefix: str) -> str:
         ok, ext_or_err = validate_upload(content_type, len(data), original_name)
@@ -43,7 +62,7 @@ class StorageService:
             blob = self._bucket.blob(key)
             blob.upload_from_string(data, content_type=content_type)
             return key
-        path = UPLOAD_ROOT / key
+        path = self.upload_root / key
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(data)
         return key
@@ -57,8 +76,9 @@ class StorageService:
                 if blob.exists():
                     blob.delete()
                 return
-            path = (UPLOAD_ROOT / key).resolve()
-            if str(path).startswith(str(UPLOAD_ROOT.resolve())) and path.is_file():
+            path = (self.upload_root / key).resolve()
+            root = self.upload_root.resolve()
+            if str(path).startswith(str(root)) and path.is_file():
                 path.unlink()
         except Exception as exc:  # noqa: BLE001
             log.warning("storage_delete_failed key=%s error=%s", key, type(exc).__name__)
@@ -68,8 +88,9 @@ class StorageService:
             raise ValueError("Invalid object key")
         if self.mode == "gcs" and self._bucket is not None:
             return self._bucket.blob(key).download_as_bytes()
-        path = (UPLOAD_ROOT / key).resolve()
-        if not str(path).startswith(str(UPLOAD_ROOT.resolve())):
+        path = (self.upload_root / key).resolve()
+        root = self.upload_root.resolve()
+        if not str(path).startswith(str(root)):
             raise ValueError("Invalid object key")
         return path.read_bytes()
 
@@ -79,6 +100,7 @@ class StorageService:
             "mode": self.mode,
             "configured": bool(get_settings().gcs_bucket),
             "error": self.error,
+            "local_root": str(self.upload_root) if self.mode == "local" else None,
         }
 
 

@@ -235,4 +235,13 @@ def health(db: Database = Depends(db_dep)):
 
 @router.get("/ready")
 def ready(db: Database = Depends(db_dep)):
-    return {"ok": db.connected, "database": db.mode, "error": db.error}
+    from app.services.integrations_check import assert_required_integrations
+
+    integration_issues = assert_required_integrations(strict=False)
+    ok = db.connected and not integration_issues
+    return {
+        "ok": ok,
+        "database": db.mode,
+        "error": db.error,
+        "integration_issues": integration_issues or None,
+    }

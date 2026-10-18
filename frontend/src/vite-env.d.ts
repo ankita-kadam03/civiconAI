@@ -33,6 +33,8 @@ interface Window {
         trigger: (target: unknown, name: string) => void;
       };
       Circle: new (opts: Record<string, unknown>) => unknown;
+      Rectangle: new (opts: Record<string, unknown>) => unknown;
+      SymbolPath: { CIRCLE: number; BACKWARD_CLOSED_ARROW: number };
       places?: {
         Autocomplete: new (
           input: HTMLInputElement,

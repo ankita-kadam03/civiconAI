@@ -74,6 +74,10 @@ class Settings(BaseSettings):
     bigquery_dataset: str = ""
     require_gemini: bool = Field(default=True, validation_alias=AliasChoices("REQUIRE_GEMINI", "REQUIRE_VERTEX_AI"))
     require_bigquery: bool = Field(default=True, validation_alias="REQUIRE_BIGQUERY")
+    fail_startup_on_integrations: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("FAIL_STARTUP_ON_INTEGRATIONS", "STARTUP_STRICT_INTEGRATIONS"),
+    )
     google_server_api_key: str = Field(
         default="",
         validation_alias=AliasChoices("GOOGLE_SERVER_API_KEY", "GOOGLE_WEATHER_SERVER_KEY"),
@@ -134,8 +138,8 @@ class Settings(BaseSettings):
 
     @property
     def integration_startup_strict(self) -> bool:
-        """When true, missing Gemini or BigQuery prevents API startup."""
-        return self.is_production
+        """When true, missing Gemini or BigQuery prevents API startup (Cloud Run should keep this false until IAM is ready)."""
+        return self.fail_startup_on_integrations
 
     @property
     def uses_firestore(self) -> bool:

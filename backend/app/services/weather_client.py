@@ -51,8 +51,8 @@ def fetch_current(lat: float, lng: float) -> dict[str, Any]:
 
 def _default_hint() -> str:
     return (
-        "Set GOOGLE_SERVER_API_KEY in backend/.env (server key with Weather API enabled). "
-        "Browser Maps keys blocked by HTTP referrer cannot call the backend."
+        "Set GOOGLE_SERVER_API_KEY on Cloud Run (production) or backend/.env (local). "
+        "Use a server key with Weather API enabled — not the browser Maps key (referrer-blocked)."
     )
 
 

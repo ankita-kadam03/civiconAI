@@ -9,10 +9,15 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 
-RUN useradd --create-home civicon
-USER civicon
+RUN useradd --create-home civicon \
+    && mkdir -p /tmp/civicon-uploads \
+    && chown -R civicon:civicon /tmp/civicon-uploads
 
-ENV PORT=8000
-EXPOSE 8000
+USER civicon
+ENV CIVICON_UPLOAD_DIR=/tmp/civicon-uploads
+
+# Cloud Run injects PORT=8080; default matches Cloud Run when env is unset locally.
+ENV PORT=8080
+EXPOSE 8080
 
 CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT}"]

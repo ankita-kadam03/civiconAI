@@ -1,0 +1,12 @@
+{
+  "projects": {
+    "default": "inlaid-reactor-402513"
+  },
+  "targets": {
+    "inlaid-reactor-402513": {
+      "hosting": {
+        "civiconai": ["civiconai"]
+      }
+    }
+  }
+}

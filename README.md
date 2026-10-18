@@ -131,6 +131,18 @@ See `docs/security.md`. Restrict browser API keys by referrer. Rotate any creden
 
 ## Production deployment
 
-See **`docs/google-cloud.md`** (Cloud Run, Secret Manager, IAM, CORS, frontend build).
+See **`docs/google-cloud.md`** (Cloud Run API, Secret Manager, IAM).
+
+**Frontend (Firebase Hosting):**
+
+```bash
+# frontend/.env.production — VITE_API_BASE_URL = your Cloud Run URL (see .env.production.example)
+npm run build --prefix frontend
+firebase deploy --only hosting
+```
+
+Or from repo root: `npm run deploy:web`
+
+Live site: https://civiconai.web.app — API CORS must include this origin on Cloud Run.
 
 Possible GCP charges: Cloud Run, Firestore, Storage, Vertex/Gemini, BigQuery, Pub/Sub, Maps Platform, Weather API.

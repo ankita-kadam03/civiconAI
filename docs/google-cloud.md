@@ -38,6 +38,8 @@ Mount secrets via **Secret Manager** → Cloud Run **Variables & secrets** (e.g.
 
 Do not set `FRESH_START=true` in production unless you intend to wipe data.
 
+The container listens on **`PORT`** (Cloud Run sets **8080**). By default the API **starts even if** Vertex/BigQuery are misconfigured; check **`GET /ready`** for `integration_issues`. Set `FAIL_STARTUP_ON_INTEGRATIONS=true` only after IAM is complete if you want a hard fail on missing Gemini/BigQuery.
+
 **Frontend:** Build Vite with `VITE_API_BASE_URL=https://YOUR-civicon-api-....run.app`. Deploy static assets via **Firebase Hosting** or a separate Cloud Run static service. Restrict `VITE_GOOGLE_MAPS_API_KEY` by HTTP referrer on the live domain.
 
 ## Secret Manager

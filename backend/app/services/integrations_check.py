@@ -12,7 +12,7 @@ log = logging.getLogger("civicon")
 def assert_required_integrations(*, strict: bool | None = None) -> list[str]:
     """Validate Gemini/Vertex and BigQuery are configured. Returns warnings; raises if strict."""
     settings = get_settings()
-    use_strict = settings.require_gemini if strict is None else strict
+    use_strict = settings.integration_startup_strict if strict is None else strict
     problems: list[str] = []
 
     if settings.require_gemini:
