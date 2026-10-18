@@ -14,7 +14,7 @@ from app.domain.status import assert_transition, can_transition
 from app.errors import AppError
 from app.schemas import AssignIn, CommentIn, ComplaintCreate, EscalateIn, StatusUpdateIn
 from app.security import now_utc, submission_hash
-from app.serialize import attachment_public, complaint_public, dt, user_public
+from app.serialize import attachment_public, complaint_public, dt, serialize_comments, user_has_promoted, user_public
 from app.services.ai import ai_service, similar_score
 from app.services.audit import write_audit
 from app.services.escalation import apply_decision
@@ -60,11 +60,29 @@ def _enrich(db: Database, doc: dict, principal) -> dict:
     dept = db.col("departments").find_one({"_id": doc.get("department_id")}) or {}
     reporter = db.col("users").find_one({"_id": doc.get("reporter_id")}) or {}
     officer = db.col("users").find_one({"_id": doc.get("assigned_officer_id")}) if doc.get("assigned_officer_id") else None
+    claimed = db.col("users").find_one({"_id": doc.get("claimed_by")}) if doc.get("claimed_by") else None
+    contact_officer = officer or claimed
+    privileged = principal.role in {"OFFICER", "ADMIN", "ADMIN_L1", "ADMIN_L2", "ADMIN_L3"}
+    is_reporter = principal.id == doc.get("reporter_id")
+    reporter_out = None
+    if reporter and (include or privileged):
+        reporter_out = {
+            "id": reporter.get("_id"),
+            "display_name": reporter.get("display_name"),
+            "phone": reporter.get("phone") if privileged else None,
+        }
+    assignee_out = None
+    if contact_officer and include:
+        assignee_out = {
+            "id": contact_officer.get("_id"),
+            "display_name": contact_officer.get("display_name"),
+            "phone": contact_officer.get("phone") if is_reporter or privileged else None,
+        }
     extras = {
         "category": {"id": cat.get("_id"), "name": cat.get("name"), "slug": cat.get("slug"), "icon": cat.get("icon")},
         "department": {"id": dept.get("_id"), "name": dept.get("name"), "code": dept.get("code")} if dept else None,
-        "reporter": {"id": reporter.get("_id"), "display_name": reporter.get("display_name")} if include else None,
-        "assignee": {"id": officer.get("_id"), "display_name": officer.get("display_name")} if officer and include else None,
+        "reporter": reporter_out,
+        "assignee": assignee_out,
     }
     return complaint_public(doc, include_internal=include, extras=extras)
 
@@ -112,7 +130,7 @@ def create_complaint(body: ComplaintCreate, request: Request, user: dict = Depen
         "reference": _next_reference(db),
         "title": body.title,
         "description": body.description,
-        "summary": classification.get("summary") or body.title,
+        "summary": (body.description or body.title).strip()[:600],
         "category_id": cat["_id"],
         "department_id": dept["_id"] if dept else cat.get("department_id"),
         "status": "SUBMITTED",
@@ -129,7 +147,11 @@ def create_complaint(body: ComplaintCreate, request: Request, user: dict = Depen
         "ai_category_slug": classification.get("category_slug"),
         "ai_severity": classification.get("severity"),
         "ai_department_code": classification.get("department_code"),
-        "ai_rationale": classification.get("rationale"),
+        "ai_rationale": (
+            "No Summary"
+            if not classification.get("ai_generated")
+            else classification.get("rationale")
+        ),
         "submission_hash": digest,
         "resolved_at": None,
         "last_progress_at": now,
@@ -270,16 +292,8 @@ def get_complaint(incident_id: str, user: dict = Depends(current_user), db: Data
         }
         for h in history
     ]
-    body["comments"] = [
-        {
-            "id": c["_id"],
-            "body": c["body"],
-            "is_internal": c.get("is_internal", False),
-            "author_id": c.get("author_id"),
-            "created_at": dt(c.get("created_at")),
-        }
-        for c in comments
-    ]
+    body["comments"] = serialize_comments(db, comments)
+    body["viewer_has_promoted"] = user_has_promoted(db, doc["_id"], user["_id"])
     body["attachments"] = [attachment_public(a) for a in attachments]
     body["escalations"] = [
         {"id": e["_id"], "level": e.get("level"), "reason": e.get("reason"), "created_at": dt(e.get("created_at"))}

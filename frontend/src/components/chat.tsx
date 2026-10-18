@@ -62,7 +62,7 @@ export function CiviChat() {
   }
 
   return (
-    <div className="fixed bottom-5 right-5 z-40">
+    <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-40 sm:bottom-5 sm:right-5">
       {open ? (
         <Card className="mb-3 w-[min(92vw,380px)] border-teal/20 shadow-card dark:border-teal/30">
           <div className="mb-3 flex items-center gap-2 font-bold text-navy dark:text-white">

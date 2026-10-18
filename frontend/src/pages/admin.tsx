@@ -26,13 +26,13 @@ const ADMIN_LINKS = [
 function AdminNav() {
   const location = useLocation();
   return (
-    <div className="mb-6 flex flex-wrap gap-2">
+    <div className="-mx-1 mb-4 flex gap-2 overflow-x-auto pb-1 sm:mb-6 sm:flex-wrap sm:overflow-visible">
       {ADMIN_LINKS.map(([label, href]) => (
         <Link
           key={href}
           to={href}
           className={cx(
-            "rounded-full px-3 py-1.5 text-sm font-semibold",
+            "shrink-0 rounded-full px-3 py-1.5 text-sm font-semibold",
             location.pathname === href ? "bg-navy text-white" : "bg-white text-navy/70",
           )}
         >
@@ -40,6 +40,60 @@ function AdminNav() {
         </Link>
       ))}
     </div>
+  );
+}
+
+const INTEGRATION_ORDER = [
+  "auth",
+  "firestore",
+  "gcs",
+  "ai",
+  "bigquery",
+  "weather",
+  "maps",
+  "pubsub",
+  "fcm",
+  "adc",
+  "required_integrations",
+] as const;
+
+function integrationStatusTone(status: string | undefined, configured?: boolean) {
+  const s = (status || "").toLowerCase();
+  if (s === "ok" || s === "connected" || s === "dev_fallback" || configured === true) {
+    if (s === "placeholder" || s === "missing" || s === "weak") return "border-amber-300/80 bg-amber-50/90 dark:border-amber-500/40 dark:bg-amber-950/30";
+    return "border-teal/25 bg-mint/20 dark:border-teal/30 dark:bg-teal/10";
+  }
+  if (s === "placeholder" || s === "missing" || s === "error" || s === "disabled") {
+    return "border-amber-300/80 bg-amber-50/90 dark:border-amber-500/40 dark:bg-amber-950/30";
+  }
+  return "border-navy/10 bg-white/80 dark:border-white/10 dark:bg-slate-900/80";
+}
+
+function IntegrationStatusCard({ name, info }: { name: string; info: Record<string, unknown> }) {
+  const status = typeof info.status === "string" ? info.status : undefined;
+  const configured = typeof info.configured === "boolean" ? info.configured : undefined;
+  const hint = typeof info.hint === "string" ? info.hint : undefined;
+  const note = typeof info.note === "string" ? info.note : undefined;
+  const error = typeof info.error === "string" ? info.error : undefined;
+  const label = name.replaceAll("_", " ");
+
+  return (
+    <Card className={cx("space-y-2 p-4 sm:p-5", integrationStatusTone(status, configured))}>
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <p className="font-bold capitalize text-navy dark:text-white">{label}</p>
+        {status ? (
+          <span className="chip bg-white/80 text-navy dark:bg-slate-800 dark:text-slate-100">{status.replaceAll("_", " ")}</span>
+        ) : configured != null ? (
+          <span className="chip bg-white/80 text-navy dark:bg-slate-800 dark:text-slate-100">{configured ? "configured" : "not configured"}</span>
+        ) : null}
+      </div>
+      {hint ? <p className="text-sm text-navy/75 dark:text-slate-300">{hint}</p> : null}
+      {note ? <p className="text-sm text-navy/65 dark:text-slate-400">{note}</p> : null}
+      {error ? <p className="text-sm font-medium text-rose-700 dark:text-rose-300">{error}</p> : null}
+      {!hint && !note && !error && !status && configured == null ? (
+        <pre className="max-h-40 overflow-auto break-all text-xs text-navy/70">{JSON.stringify(info, null, 2)}</pre>
+      ) : null}
+    </Card>
   );
 }
 
@@ -366,27 +420,42 @@ export function IntegrationsPage() {
     endpoints.integrations().then(setData).catch(() => undefined);
   }, []);
   if (!data) return <Skeleton className="h-40" />;
+  const skipKeys = new Set(["pubsub_usage"]);
+  const ordered = [
+    ...INTEGRATION_ORDER.filter((k) => data[k]),
+    ...Object.keys(data).filter((k) => !INTEGRATION_ORDER.includes(k as (typeof INTEGRATION_ORDER)[number]) && !skipKeys.has(k)),
+  ];
+  const usage = typeof data.pubsub_usage === "string" ? data.pubsub_usage : null;
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 sm:space-y-6">
       <AdminNav />
-      <h1 className="text-3xl font-extrabold">Integration health</h1>
-      <Card className="space-y-2 bg-foam/80 text-sm text-navy/80 dark:bg-slate-800/80 dark:text-slate-200">
-        <p className="font-bold text-navy dark:text-white">What Civicon uses (heads-up)</p>
+      <h1 className="text-2xl font-extrabold sm:text-3xl">Integration health</h1>
+      <Card className="space-y-2 bg-foam/80 p-4 text-sm text-navy/80 dark:bg-slate-800/80 dark:text-slate-200 sm:p-5">
+        <p className="font-bold text-navy dark:text-white">Google Cloud stack</p>
         <ul className="list-disc space-y-1 pl-5">
-          <li><strong>Firebase / Firestore</strong> — primary database (required).</li>
-          <li><strong>Google Cloud Storage</strong> — report photo storage (required for uploads).</li>
-          <li><strong>Vertex AI / Gemini</strong> — <strong>required</strong> for report classification (`GEMINI_API_KEY` or Vertex ADC).</li>
-          <li><strong>BigQuery</strong> — <strong>required</strong> analytics warehouse (`BIGQUERY_DATASET`); incidents sync on create/update.</li>
-          <li><strong>Google Maps</strong> — browser maps (frontend API key).</li>
+          <li><strong>Firestore</strong> — primary database.</li>
+          <li><strong>Cloud Storage</strong> — report photos.</li>
+          <li><strong>Gemini / Vertex</strong> — AI classification.</li>
+          <li><strong>BigQuery</strong> — analytics.</li>
+          <li><strong>Maps + Weather</strong> — browser map key; server weather key.</li>
+          <li><strong>JWT auth</strong> — signing secret on the server only (<code className="text-xs">JWT_SECRET</code> from Secret Manager).</li>
         </ul>
       </Card>
-      <p className="text-sm text-navy/60">Statuses never include secrets, keys or connection strings.</p>
-      {Object.entries(data).map(([name, info]) => (
-        <Card key={name}>
-          <p className="font-bold capitalize">{name}</p>
-          <pre className="mt-2 overflow-auto text-xs text-navy/70">{JSON.stringify(info, null, 2)}</pre>
+      <p className="text-sm text-navy/60">Never paste API keys here. Health checks show status and hints only.</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {ordered.map((name) => {
+          const raw = data[name];
+          if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+          return <IntegrationStatusCard key={name} name={name} info={raw as Record<string, unknown>} />;
+        })}
+      </div>
+      {usage ? (
+        <Card className="p-4 text-sm text-navy/70 dark:text-slate-300 sm:p-5">
+          <p className="font-bold text-navy dark:text-white">Pub/Sub</p>
+          <p className="mt-2">{usage}</p>
         </Card>
-      ))}
+      ) : null}
     </div>
   );
 }

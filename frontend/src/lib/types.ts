@@ -75,15 +75,23 @@ export interface Complaint {
   assigned_officer_id?: string | null;
   category?: { id?: string; name?: string; slug?: string; icon?: string };
   department?: { id?: string; name?: string; code?: string } | null;
-  reporter?: { id?: string; display_name?: string } | null;
-  assignee?: { id?: string; display_name?: string } | null;
+  reporter?: { id?: string; display_name?: string; phone?: string | null } | null;
+  assignee?: { id?: string; display_name?: string; phone?: string | null } | null;
   similar?: Array<{ id: string; reference?: string; title?: string; score: number }>;
   ai?: Record<string, unknown>;
   ai_rationale?: string;
   ai_severity?: string;
   ai_category_slug?: string;
   history?: Array<{ id: string; from_status?: string; to_status?: string; note?: string; created_at?: string }>;
-  comments?: Array<{ id: string; body: string; is_internal?: boolean; author_id?: string; created_at?: string }>;
+  comments?: Array<{
+    id: string;
+    body: string;
+    is_internal?: boolean;
+    author_id?: string;
+    author?: { id?: string; display_name?: string };
+    created_at?: string;
+  }>;
+  viewer_has_promoted?: boolean;
   attachments?: Array<{ id: string; kind?: string; original_name?: string; mime_type?: string; is_private?: boolean }>;
   escalations?: Array<{ id: string; level?: number; reason?: string; created_at?: string }>;
   source?: string;

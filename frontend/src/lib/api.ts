@@ -150,6 +150,7 @@ export const endpoints = {
   escalations: () => api.get<Array<Record<string, unknown>>>("/api/admin/escalations"),
   integrations: () => api.get<Record<string, Record<string, unknown>>>("/api/admin/integrations"),
   weather: (lat: number, lng: number) => api.get(`/api/public/weather?lat=${lat}&lng=${lng}`),
+  weatherCheck: (latitude: number, longitude: number) => api.post("/api/users/me/weather-check", { latitude, longitude }),
   promote: (id: string) => api.post(`/api/v1/incidents/${id}/promote`),
   better: (id: string) => api.post(`/api/v1/incidents/${id}/better`),
   verify: (id: string, answer: "resolved" | "unresolved") => api.post(`/api/v1/incidents/${id}/verify`, { answer }),

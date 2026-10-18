@@ -417,7 +417,7 @@ def seed_if_needed(db: Database) -> None:
             "_id": _id(),
             "email": email.lower(),
             "display_name": label,
-            "phone": None,
+            "phone": "+9190000" + str(abs(hash(email)) % 10000).zfill(4),
             "role": role,
             "department_id": pwd_dept["_id"] if pwd_dept and role == "OFFICER" else None,
             "region_id": region_id,

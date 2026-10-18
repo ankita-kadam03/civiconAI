@@ -15,6 +15,7 @@ from app.schemas import CategoryIn, DepartmentIn, EscalationRuleIn, RolePatch
 from app.security import now_utc
 from app.serialize import dt, user_public
 from app.services.ai import ai_service
+from app.services.auth_config import jwt_auth_health
 from app.services.audit import write_audit
 from app.services.pubsub import pubsub_service
 from app.services.bigquery_analytics import bigquery_analytics
@@ -271,7 +272,12 @@ def integrations(_: dict = Depends(require_roles("ADMIN"))):
             "gemini_configured": bool(settings.gemini_api_key.strip()) or bool(settings.google_cloud_project.strip()),
         },
         "fcm": {"configured": bool(settings.firebase_project_resolved)},
-        "jwt_secret_configured": bool(settings.jwt_secret),
+        "auth": jwt_auth_health(settings),
+        "weather": {
+            "provider": "google_weather",
+            "server_key_configured": bool(settings.google_server_api_key.strip() or settings.google_maps_api_key.strip()),
+            "hint": "Enable Weather API and set GOOGLE_SERVER_API_KEY (server key, not browser referrer key).",
+        },
         "pubsub_usage": "Publishes incident.created and incident.status_changed on complaint create/update; internal push handler runs escalations.",
     }
 

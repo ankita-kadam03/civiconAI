@@ -1,67 +1,116 @@
-# Google Cloud setup for Civicon AI
+# Google Cloud — Civicon AI
 
-Do not create resources, enable extra APIs, change IAM, or deploy until the project owner approves. These steps may incur charges.
+Production target: **Cloud Run** (`civicon-api`) in your GCP/Firebase project, with **Firestore**, **Cloud Storage**, **Gemini/Vertex**, **BigQuery**, **Maps Platform**, and **Weather API**.
 
 ## Authentication
 
-Local development should use Application Default Credentials:
+**Local:** Application Default Credentials:
 
 ```bash
 gcloud auth application-default login
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-Prefer an attached Cloud Run service account in production. Do not commit service-account JSON keys.
+**Production:** Cloud Run service account (no JSON key files in the repo or container).
 
-## Vertex AI / Gemini (required)
+## Cloud Run (API)
 
-Set `REQUIRE_GEMINI=true` (default). You must configure **either**:
+Image: `backend/Dockerfile` → `uvicorn app.main:app --host 0.0.0.0 --port ${PORT}`.
 
-1. `GEMINI_API_KEY` (Gemini Developer API), **or**
-2. `GOOGLE_CLOUD_PROJECT` + Application Default Credentials for Vertex AI.
+Suggested service name: **`civicon-api`**. Region: e.g. **`asia-south1`**.
 
-Enable `generativelanguage.googleapis.com` and/or `aiplatform.googleapis.com`. Report submission and `/api/ai/classify` return **503** if Gemini is unavailable when required.
+**Required env (examples):**
 
-Humans can override every AI suggestion in the UI.
+| Variable | Notes |
+| --- | --- |
+| `APP_ENV` | `production` |
+| `ALLOW_MEMORY_DB` | `false` |
+| `FIREBASE_PROJECT_ID` | Same as Firebase/GCP project |
+| `GOOGLE_CLOUD_PROJECT` | Vertex, GCS, Pub/Sub |
+| `GCS_BUCKET` | Private photo bucket |
+| `BIGQUERY_DATASET` | e.g. `civicon_analytics` |
+| `CORS_ORIGINS` | HTTPS frontend origin(s), comma-separated |
+| `JWT_SECRET` | From Secret Manager (see below) |
+| `INTERNAL_TASK_SECRET` | Scheduler / internal routes |
+| `GOOGLE_SERVER_API_KEY` | Weather API (server key, not browser Maps key) |
 
-## Cloud Storage
+Mount secrets via **Secret Manager** → Cloud Run **Variables & secrets** (e.g. `civicon-jwt-secret` → `JWT_SECRET`).
 
-Set `GCS_BUCKET` to a private bucket. Objects use random names. The API streams files after server-side authorization. Do not make the bucket public to display images.
+Do not set `FRESH_START=true` in production unless you intend to wipe data.
 
-IAM needed by the runtime identity: `storage.objects.create`, `storage.objects.get` on that bucket.
-
-## Pub/Sub
-
-Topic name is `PUBSUB_TOPIC_EVENTS` (default `incident-events`). Events: `incident.created`, `incident.status_changed`, `incident.escalated`.
-
-Push endpoint: `POST /internal/events` authenticated with `INTERNAL_TASK_SECRET` (or OIDC later via `PUSH_SERVICE_ACCOUNT` / `INTERNAL_OIDC_AUDIENCE`). Consumers are idempotent via `processed_events`.
-
-If the topic does not exist, the app still runs and skips publish failures.
-
-## Cloud Scheduler / Cloud Run Jobs
-
-Schedule `POST /internal/tasks/escalate` on a short interval. The job is idempotent: the same level is never written twice.
-
-Local equivalent: `python -m app.jobs.escalate` from `backend/`.
-
-## Cloud Run
-
-`backend/Dockerfile` serves `uvicorn app.main:app --host 0.0.0.0 --port ${PORT}`.
-
-Suggested runtime env: `APP_ENV=production`, `DEMO_MODE=false`, `MONGODB_URI`, `JWT_SECRET`, `INTERNAL_TASK_SECRET`, `GOOGLE_CLOUD_PROJECT`, `GCS_BUCKET`. Load secrets from Secret Manager, not the container image.
-
-Do not run `gcloud run deploy` unless asked.
-
-## Maps
-
-Browser key only (`VITE_GOOGLE_MAPS_API_KEY`). Restrict by HTTP referrer and APIs (`Maps JavaScript API`, `Places API`). If the key is missing or blocked, the UI uses Leaflet and OpenStreetMap.
+**Frontend:** Build Vite with `VITE_API_BASE_URL=https://YOUR-civicon-api-....run.app`. Deploy static assets via **Firebase Hosting** or a separate Cloud Run static service. Restrict `VITE_GOOGLE_MAPS_API_KEY` by HTTP referrer on the live domain.
 
 ## Secret Manager
 
-Store `JWT_SECRET`, `INTERNAL_TASK_SECRET`, `MONGODB_URI`, and `GEMINI_API_KEY` as secrets. Map them into Cloud Run as environment variables. Never mount a full JSON key into the frontend.
+Store at minimum:
 
-## BigQuery (required)
+- `JWT_SECRET` (secret name e.g. `civicon-jwt-secret`)
+- `INTERNAL_TASK_SECRET`
+- Optional: `GEMINI_API_KEY`, `GOOGLE_SERVER_API_KEY`
 
-Set `REQUIRE_BIGQUERY=true` (default) and `BIGQUERY_DATASET` (e.g. `civicon_analytics`) in the same GCP project as `GOOGLE_CLOUD_PROJECT`.
+Grant the Cloud Run runtime service account **`roles/secretmanager.secretAccessor`** on those secrets.
 
-The API creates the dataset/table if IAM allows, syncs each incident on create/status change, and powers **60-day recurrence** analytics on `/admin/analytics`. Enable `bigquery.googleapis.com` and grant the runtime identity `bigquery.dataEditor` + `bigquery.jobUser`.
+### JWT
+
+Civicon uses **server-issued JWT** for API auth (email/password). Use a random 32+ character secret; never commit it. **Admin → Health → auth** should show `ok` when configured.
+
+## Vertex AI / Gemini
+
+Default `REQUIRE_GEMINI=true`. Configure **either** `GEMINI_API_KEY` **or** `GOOGLE_CLOUD_PROJECT` + Vertex ADC.
+
+Enable `generativelanguage.googleapis.com` and/or `aiplatform.googleapis.com`. Classification returns **503** when Gemini is required but unavailable.
+
+## Cloud Storage
+
+Private bucket (`GCS_BUCKET`). Runtime needs `storage.objects.create` and `storage.objects.get`. Objects are not public; the API streams after auth.
+
+## Firestore
+
+Primary database when `ALLOW_MEMORY_DB=false` and `FIREBASE_PROJECT_ID` is set. Runtime needs Firestore access (e.g. `roles/datastore.user`).
+
+## BigQuery
+
+Set `REQUIRE_BIGQUERY=true` (default) and `BIGQUERY_DATASET`. Enable `bigquery.googleapis.com`; grant `bigquery.dataEditor` and `bigquery.jobUser`.
+
+## Pub/Sub
+
+Topic: `PUBSUB_TOPIC_EVENTS` (default `incident-events`). Push to `POST /internal/events` with `INTERNAL_TASK_SECRET` (or OIDC via `PUSH_SERVICE_ACCOUNT` / `INTERNAL_OIDC_AUDIENCE`). Publish failures are non-fatal.
+
+## Cloud Scheduler
+
+Periodic `POST /internal/tasks/escalate` with header `X-Civicon-Task: <INTERNAL_TASK_SECRET>`. Local equivalent: `python -m app.jobs.escalate` from `backend/`.
+
+## Maps (browser)
+
+`VITE_GOOGLE_MAPS_API_KEY` only in the frontend. Restrict by **HTTP referrer** and APIs: Maps JavaScript API, Places. Maps require a valid key; there is no third-party map fallback in production UI.
+
+## Weather (server)
+
+Enable **Weather API** (`weather.googleapis.com`). Set **`GOOGLE_SERVER_API_KEY`** on the backend. Do not reuse the browser Maps key (referrer restrictions block server calls).
+
+## Observability in Console
+
+| Area | Where in GCP Console |
+| --- | --- |
+| Cloud Run logs & metrics | Cloud Run → `civicon-api` → Logs / Metrics |
+| Firestore usage | Firestore → Usage |
+| Storage | Cloud Storage → bucket metrics |
+| Vertex / Gemini | Vertex AI → Dashboard / Generative AI |
+| BigQuery | BigQuery → job history |
+| Pub/Sub | Pub/Sub → Topics → metrics |
+| Maps & Weather quotas | APIs & Services → Enabled APIs → quotas |
+| Secret access | Secret Manager → secret → Permissions / audit |
+
+## IAM (runtime service account)
+
+Typical roles for the Cloud Run identity:
+
+- `roles/datastore.user`
+- `roles/storage.objectAdmin` (or tighter bucket-level)
+- `roles/aiplatform.user` (if using Vertex)
+- `roles/pubsub.publisher`
+- `roles/bigquery.dataEditor`, `roles/bigquery.jobUser`
+- `roles/secretmanager.secretAccessor` (on app secrets)
+- FCM: as needed for push (`firebasecloudmessaging` admin or equivalent)
+
+Adjust to least privilege for your org.

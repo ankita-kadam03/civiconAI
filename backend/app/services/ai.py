@@ -6,7 +6,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeou
 from typing import Any
 
 from app.config import get_settings
-from app.domain.ai_validate import validate_classification
+from app.domain.ai_validate import ClassificationLLMOut, classification_from_llm
 
 log = logging.getLogger("civicon.ai")
 
@@ -22,11 +22,8 @@ KEYWORD_MAP = [
 ]
 
 SYSTEM_CLASSIFY = """You classify civic infrastructure complaints for a municipality.
-Return JSON only with keys: category_slug, severity, summary, department_code, rationale.
-category_slug must be one of: potholes, garbage, water, drainage, streetlights, traffic-signs, parks, infrastructure, other.
-severity must be one of: LOW, MEDIUM, HIGH, CRITICAL.
-department_code must be one of: PWD, SAN, WTR, ELC, TRF, PRK, GEN.
-summary: one or two sentences for an officer. Do not include personal names, emails, phones, or exact private addresses.
+Fill every JSON field. summary: one or two sentences for an officer.
+Do not include personal names, emails, phones, or exact private addresses.
 Never invent official policy or claim that authorities have been contacted.
 """
 
@@ -102,29 +99,49 @@ class AIService:
             log.warning("ai_vertex_fallback_failed error=%s", type(exc).__name__)
             return False
 
-    def _generate_once(self, system: str, user: str, settings) -> str | None:
+    def _generate_once(
+        self,
+        system: str,
+        user: str,
+        settings,
+        *,
+        response_schema: type | None = None,
+    ) -> tuple[ClassificationLLMOut | None, str | None]:
         last_error = None
         blocked_key = False
         for model in settings.gemini_model_candidates:
             try:
 
-                def _call(current_model: str = model) -> str | None:
+                def _call(current_model: str = model) -> tuple[ClassificationLLMOut | None, str | None]:
+                    config: dict[str, Any] = {
+                        "system_instruction": system,
+                        "temperature": 0.2,
+                        "max_output_tokens": 512,
+                    }
+                    if response_schema is not None:
+                        config["response_mime_type"] = "application/json"
+                        config["response_schema"] = response_schema
                     response = self._client.models.generate_content(
                         model=current_model,
                         contents=user,
-                        config={
-                            "system_instruction": system,
-                            "temperature": 0.2,
-                            "max_output_tokens": 512,
-                        },
+                        config=config,
                     )
-                    return getattr(response, "text", None)
+                    parsed = getattr(response, "parsed", None)
+                    text = getattr(response, "text", None)
+                    if response_schema is ClassificationLLMOut and isinstance(parsed, ClassificationLLMOut):
+                        return parsed, text
+                    if response_schema is ClassificationLLMOut and text:
+                        try:
+                            return ClassificationLLMOut.model_validate_json(text), text
+                        except Exception:  # noqa: BLE001
+                            pass
+                    return None, text
 
                 with ThreadPoolExecutor(max_workers=1) as pool:
-                    text = pool.submit(_call).result(timeout=18)
-                if text:
+                    structured, text = pool.submit(_call).result(timeout=18)
+                if structured or text:
                     self.model_in_use = model
-                    return text
+                    return structured, text
             except FuturesTimeout:
                 last_error = "TimeoutError"
                 log.warning("ai_generate_timeout model=%s", model)
@@ -147,8 +164,23 @@ class AIService:
                 continue
         self.error = last_error
         if blocked_key and self._activate_vertex_fallback():
-            return self._generate_once(system, user, settings)
-        return None
+            return self._generate_once(system, user, settings, response_schema=response_schema)
+        return None, None
+
+    def _generate_structured(self, system: str, user: str) -> tuple[ClassificationLLMOut | None, str | None]:
+        self.reload_from_settings()
+        if not self._client:
+            if self._activate_vertex_fallback():
+                pass
+            if not self._client:
+                return None, None
+        settings = get_settings()
+        return self._generate_once(
+            system,
+            user,
+            settings,
+            response_schema=ClassificationLLMOut,
+        )
 
     def _generate(self, system: str, user: str) -> str | None:
         self.reload_from_settings()
@@ -158,7 +190,8 @@ class AIService:
             if not self._client:
                 return None
         settings = get_settings()
-        return self._generate_once(system, user, settings)
+        _, text = self._generate_once(system, user, settings)
+        return text
 
     def classify(
         self,
@@ -191,8 +224,22 @@ class AIService:
             f"Locality: {(locality or 'unspecified')[:80]}\n"
             f"{photo_note}"
         )
-        text = self._generate(SYSTEM_CLASSIFY, prompt)
-        if not text:
+        fallback_title = title.strip()[:180]
+        structured, text = self._generate_structured(SYSTEM_CLASSIFY, prompt)
+        parsed = (
+            classification_from_llm(structured, fallback_title=fallback_title)
+            if structured
+            else None
+        )
+        if not parsed and text:
+            parsed = _parse_classification(text, fallback_title=fallback_title)
+        if not parsed:
+            structured, text = self._generate_structured(SYSTEM_CLASSIFY, prompt)
+            if structured:
+                parsed = classification_from_llm(structured, fallback_title=fallback_title)
+            elif text:
+                parsed = _parse_classification(text, fallback_title=fallback_title)
+        if not parsed and not text and not structured:
             if settings.require_gemini:
                 heuristic["source"] = "error"
                 heuristic["ai_generated"] = False
@@ -206,17 +253,12 @@ class AIService:
             heuristic["source"] = "heuristic"
             heuristic["ai_generated"] = False
             return heuristic
-        from app.domain.ai_validate import extract_json
-
-        parsed = _parse_classification(text)
         if not parsed:
-            retry_prompt = (
-                f"{prompt}\n\nReturn ONLY a single JSON object with keys "
-                "category_slug, severity, summary, department_code, rationale. No markdown."
+            log.warning(
+                "ai_classify_parse_failed mode=%s text_preview=%r",
+                self.mode,
+                (text or "")[:240],
             )
-            text = self._generate(SYSTEM_CLASSIFY, retry_prompt)
-            parsed = _parse_classification(text) if text else None
-        if not parsed:
             if settings.require_gemini:
                 heuristic["source"] = "error"
                 heuristic["ai_generated"] = False
@@ -252,32 +294,33 @@ class AIService:
         }
 
 
-def _parse_classification(text: str) -> dict | None:
+def _parse_classification(text: str, *, fallback_title: str = "") -> dict | None:
     from app.domain.ai_validate import extract_json, validate_classification
 
     raw = extract_json(text) or {}
-    return validate_classification(raw)
+    return validate_classification(raw, fallback_title=fallback_title)
 
 
 def heuristic_classify(title: str, description: str) -> dict:
+    user_summary = (description or title).strip()[:600] or title.strip()[:180]
     blob = f"{title} {description}".lower()
     for words, slug, dept, severity in KEYWORD_MAP:
         if any(word in blob for word in words):
             return {
                 "category_slug": slug,
                 "severity": severity,
-                "summary": title.strip()[:180],
+                "summary": user_summary,
                 "department_code": dept,
-                "rationale": "Keyword fallback because a live model response was unavailable or invalid.",
+                "rationale": "No Summary",
                 "source": "heuristic",
                 "ai_generated": False,
             }
     return {
         "category_slug": "other",
         "severity": "MEDIUM",
-        "summary": title.strip()[:180],
+        "summary": user_summary,
         "department_code": "GEN",
-        "rationale": "No confident category match. Routed to general administration.",
+        "rationale": "No Summary",
         "source": "heuristic",
         "ai_generated": False,
     }

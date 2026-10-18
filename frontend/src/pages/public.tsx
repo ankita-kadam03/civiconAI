@@ -1,7 +1,9 @@
-import { HandHelping, MapPin } from "lucide-react";
+import { MapPin } from "lucide-react";
 import { useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
-import { IncidentCard, StatusBadge } from "../components/incidents";
+import { IncidentCard, PromoteButton, StatusBadge } from "../components/incidents";
+import { CategoryIconBadge } from "../lib/category-icons";
+import { formatDate } from "../lib/format";
 import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import { HomePreviewMap, IncidentMap } from "../components/maps";
@@ -71,10 +73,10 @@ function ExploreIncidentsBlock({ compact }: { compact?: boolean }) {
 
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap gap-3">
-        <Input placeholder="Search title, locality or CIV reference" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" />
+      <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
+        <Input placeholder="Search title, locality or CIV reference" value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-sm" />
         <select
-          className="min-w-[11rem] rounded-2xl border border-navy/10 bg-white px-3 py-2.5 text-sm font-medium text-navy shadow-sm dark:border-white/15 dark:bg-slate-900 dark:text-slate-100"
+          className="w-full min-w-0 rounded-2xl border border-navy/10 bg-white px-3 py-2.5 text-sm font-medium text-navy shadow-sm sm:min-w-[11rem] sm:w-auto dark:border-white/15 dark:bg-slate-900 dark:text-slate-100"
           value={status}
           onChange={(e) => setStatus(e.target.value)}
           aria-label="Filter by status"
@@ -221,42 +223,61 @@ export function PublicIncidentPage() {
   const [item, setItem] = useState<Complaint | null>(null);
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
+  const [promoted, setPromoted] = useState(false);
+  async function load() {
+    const doc = await endpoints.publicComplaint(reference);
+    setItem(doc);
+    setPromoted(Boolean(doc.viewer_has_promoted));
+  }
   useEffect(() => {
-    endpoints
-      .publicComplaint(reference)
-      .then(setItem)
-      .catch((err: Error) => setError(err.message));
+    load().catch((err: Error) => setError(err.message));
   }, [reference]);
   if (error) return <EmptyState title="Not found" body={error} />;
   if (!item) return <Skeleton className="h-64" />;
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <Card className="space-y-4 p-6 md:p-8">
-        <p className="text-xs font-bold uppercase tracking-wide text-teal">{item.reference}</p>
-        <h1 className="text-3xl font-extrabold text-navy dark:text-white">{item.title}</h1>
+        <div className="flex items-start gap-3">
+          <CategoryIconBadge slugOrIcon={item.category?.icon || item.category?.slug} className="mt-1 h-11 w-11 rounded-2xl" size={22} />
+          <div className="min-w-0 flex-1">
+            <p className="text-xs font-bold uppercase tracking-wide text-teal">{item.reference}</p>
+            <h1 className="text-3xl font-extrabold text-navy dark:text-white">{item.title}</h1>
+          </div>
+        </div>
         <StatusBadge status={item.status} />
         <p className="text-base leading-relaxed text-navy/70 dark:text-slate-300">{item.description}</p>
         <p className="flex items-center gap-2 text-sm font-medium text-navy/80 dark:text-slate-200">
           <MapPin size={16} className="shrink-0 text-teal" aria-hidden />
           {item.locality}
         </p>
+        {(item.comments || []).length ? (
+          <div className="space-y-3 border-t border-navy/10 pt-4 dark:border-white/10">
+            <h2 className="text-lg font-bold text-navy dark:text-white">Comments</h2>
+            {(item.comments || []).map((c) => (
+              <div key={c.id} className="rounded-2xl bg-foam p-3 text-sm dark:bg-slate-800/80">
+                <p className="font-semibold text-navy dark:text-white">{c.author?.display_name || "Community member"}</p>
+                <p className="mt-1 text-navy/80 dark:text-slate-200">{c.body}</p>
+                <p className="mt-1 text-xs text-navy/50">{formatDate(c.created_at)}</p>
+              </div>
+            ))}
+          </div>
+        ) : null}
         {user ? (
           <div className="space-y-3 border-t border-navy/10 pt-4 dark:border-white/10">
-            <Button
-              type="button"
-              variant="soft"
+            <PromoteButton
+              promoted={promoted}
+              count={item.counters?.promotes}
               onClick={async () => {
                 try {
                   await endpoints.promote(item.id);
+                  setPromoted(true);
                   toast("Promoted", "ok");
+                  await load();
                 } catch (err) {
                   toast(err instanceof Error ? err.message : "Sign in to promote", "err");
                 }
               }}
-            >
-              <HandHelping size={16} aria-hidden />
-              Promote
-            </Button>
+            />
             <Textarea value={note} onChange={(e) => setNote(e.target.value)} placeholder="Add a public comment" />
             <Button
               type="button"
@@ -266,6 +287,7 @@ export function PublicIncidentPage() {
                   await endpoints.comment(item.id, { body: note, is_internal: false });
                   setNote("");
                   toast("Comment posted", "ok");
+                  await load();
                 } catch (err) {
                   toast(err instanceof Error ? err.message : "Could not comment", "err");
                 }

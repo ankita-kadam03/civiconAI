@@ -1,5 +1,5 @@
 import { zodResolver } from "@hookform/resolvers/zod";
-import { Bell, HandHelping, MapPin, Plus, Trash2 } from "lucide-react";
+import { Bell, MapPin, Plus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useForm } from "react-hook-form";
 import { Link, useParams } from "react-router-dom";
@@ -8,11 +8,13 @@ import { INCIDENT_PROGRESS_STEPS, ProgressTracker, REPORT_PROGRESS_STEPS, incide
 import { categoryIcon } from "../lib/category-icons";
 import { notificationTabs } from "../features/auth/paths";
 import { SlaTimer } from "../features/incidents/SlaTimer";
-import { IncidentCard, SeverityBadge, StatusBadge, Timeline } from "../components/incidents";
+import { IncidentCard, PromoteButton, SeverityBadge, StatusBadge, Timeline } from "../components/incidents";
+import { CategoryIconBadge } from "../lib/category-icons";
 import { LocationPicker } from "../components/maps";
-import { Button, Card, ConfirmDialog, EmptyState, Field, FileUpload, Input, Skeleton, Textarea } from "../components/ui";
+import { Button, Card, ConfirmDialog, EmptyState, Field, FileAttachButton, FileUpload, Input, Skeleton, Textarea } from "../components/ui";
 import { endpoints, fetchAttachmentBlob } from "../lib/api";
 import { useAuth } from "../lib/auth";
+import { useFileObjectUrls } from "../lib/file-previews";
 import { NEXT_STATUSES, cx, formatDate } from "../lib/format";
 import { reportSchema, type ReportValues } from "../lib/schemas";
 import { useToast } from "../lib/toast";
@@ -39,7 +41,7 @@ export function CitizenDashboard() {
     <div className="space-y-6">
       <Card className="bg-gradient-to-r from-sky via-white to-mint">
         <p className="text-sm font-semibold text-teal">Good to see you</p>
-        <h1 className="mt-1 text-3xl font-extrabold text-navy">Your dashboard</h1>
+        <h1 className="mt-1 text-2xl font-extrabold text-navy sm:text-3xl">Your dashboard</h1>
         <p className="mt-2 max-w-2xl text-navy/70">Your street is a shared story. Tell us what needs care, then follow every step until it is done.</p>
         <Link to="/app/report" className="mt-5 inline-block">
           <Button>
@@ -77,7 +79,7 @@ export function CitizenDashboard() {
           <h2 className="text-xl font-bold">Nearby issues</h2>
           {nearby.length ? nearby.slice(0, 3).map((item) => (
             <IncidentCard key={item.id} incident={item} to={`/app/reports/${item.id}`} />
-          )) : <p className="text-sm text-navy/60">Public reports in Tambaram will appear here.</p>}
+          )) : <p className="text-sm text-navy/60">Public reports in your service area will appear here.</p>}
         </Card>
         <Card className="space-y-3">
           <h2 className="text-xl font-bold">Saved places</h2>
@@ -125,13 +127,41 @@ export function CitizenDashboard() {
   );
 }
 
+function ReportPhotoStrip({ files, label = "Attached photos" }: { files: File[]; label?: string }) {
+  const urls = useFileObjectUrls(files);
+  if (!files.length) return null;
+  return (
+    <div className="rounded-2xl border border-teal/25 bg-mint/20 p-3 dark:border-teal/30 dark:bg-teal/5">
+      <p className="text-sm font-bold text-navy dark:text-white">
+        {label} <span className="font-normal text-navy/60">({files.length})</span>
+      </p>
+      <ul className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
+        {files.map((file, index) => (
+          <li
+            key={`${file.name}-${file.size}-${file.lastModified}`}
+            className="overflow-hidden rounded-xl border-2 border-white bg-white shadow-sm dark:border-slate-700 dark:bg-slate-900"
+          >
+            {urls[index] ? (
+              <img src={urls[index]} alt={file.name} className="aspect-[4/3] w-full object-cover" />
+            ) : (
+              <div className="aspect-[4/3] animate-pulse bg-navy/10" />
+            )}
+            <p className="truncate px-2 py-1.5 text-[10px] font-medium text-navy/70">{file.name}</p>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
 export function ReportPage() {
   const toast = useToast();
   const [step, setStep] = useState(1);
   const [categories, setCategories] = useState<Category[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [files, setFiles] = useState<File[]>([]);
-  const [suggestion, setSuggestion] = useState<Record<string, string> | null>(null);
+  const [suggestion, setSuggestion] = useState<Record<string, unknown> | null>(null);
+  const [classifyFailed, setClassifyFailed] = useState(false);
   const [created, setCreated] = useState<Complaint | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<ReportValues>({
@@ -152,7 +182,9 @@ export function ReportPage() {
   const selectedCategory = categories.find((c) => c.id === values.category_id);
   const selectedDept =
     departments.find((d) => d.id === selectedCategory?.department_id) ||
-    (suggestion?.department_code ? departments.find((d) => d.code === suggestion.department_code) : undefined);
+    (suggestion?.department_code
+      ? departments.find((d) => d.code === String(suggestion.department_code))
+      : undefined);
 
   async function suggest() {
     const current = form.getValues();
@@ -165,10 +197,12 @@ export function ReportPage() {
         latitude: current.latitude,
         longitude: current.longitude,
         photo_count: files.length,
-      })) as Record<string, string>;
+      })) as Record<string, unknown>;
       setSuggestion(res);
+      setClassifyFailed(res.ai_generated === false);
     } catch {
       setSuggestion(null);
+      setClassifyFailed(true);
     }
   }
 
@@ -258,7 +292,10 @@ export function ReportPage() {
       {step === 2 ? (
         <Card className="space-y-4">
           {selectedCategory ? (
-            <p className="text-sm font-semibold text-teal">Issue: {selectedCategory.name}</p>
+            <p className="flex items-center gap-2 text-sm font-semibold text-teal">
+              <CategoryIconBadge slugOrIcon={selectedCategory.icon || selectedCategory.slug} className="h-8 w-8 rounded-lg bg-teal/15" size={16} />
+              Issue: {selectedCategory.name}
+            </p>
           ) : null}
           <Field label="Title" error={form.formState.errors.title?.message}>
             <Input {...form.register("title")} />
@@ -332,6 +369,7 @@ export function ReportPage() {
             <p className="text-sm font-semibold text-teal">Issue: {selectedCategory.name}</p>
           ) : null}
           <FileUpload files={files} onChange={setFiles} max={4} />
+          <ReportPhotoStrip files={files} label="Preview" />
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(3)}>
               Back
@@ -343,9 +381,13 @@ export function ReportPage() {
         </Card>
       ) : null}
       {step === 5 ? (
-        <Card className="space-y-4">
+        <Card className={cx("relative space-y-4", submitting && "opacity-95")}>
+          {submitting ? (
+            <p className="rounded-2xl bg-mint/60 px-3 py-2 text-sm font-semibold text-navy">Submitting your report…</p>
+          ) : null}
           {selectedCategory ? (
-            <p className="text-sm font-semibold text-teal">
+            <p className="flex flex-wrap items-center gap-2 text-sm font-semibold text-teal">
+              <CategoryIconBadge slugOrIcon={selectedCategory.icon || selectedCategory.slug} size={16} />
               Category: {selectedCategory.name}
               {selectedDept ? ` → ${selectedDept.name} (${selectedDept.code})` : ""}
             </p>
@@ -353,6 +395,7 @@ export function ReportPage() {
           <h2 className="text-xl font-bold dark:text-white">{values.title}</h2>
           <p className="text-navy/70 dark:text-slate-300">{values.description}</p>
           <p className="text-sm dark:text-slate-300">{values.locality}</p>
+          <ReportPhotoStrip files={files} />
           <div className="rounded-2xl bg-foam p-3 text-sm dark:bg-slate-800/80">
             <p className="font-semibold text-navy dark:text-white">How departments are assigned</p>
             <p className="mt-1 text-navy/70 dark:text-slate-300">
@@ -366,18 +409,19 @@ export function ReportPage() {
               </p>
             ) : null}
           </div>
-          {suggestion?.severity ? (
+          {classifyFailed ? (
+            <div className="rounded-2xl border border-amber-200/80 bg-amber-50/80 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-950/30">
+              <p className="font-semibold text-navy dark:text-white">AI summary unavailable</p>
+              <p className="mt-1 text-navy/70 dark:text-slate-300">Your description below will be submitted as-is for officers.</p>
+              <p className="mt-2 rounded-xl bg-white/80 p-2 text-navy/90 dark:bg-slate-900/60 dark:text-slate-200">{values.description}</p>
+            </div>
+          ) : null}
+          {suggestion?.severity && !classifyFailed ? (
             <div className="rounded-2xl bg-foam p-3 text-sm dark:bg-slate-800">
               <p className="font-semibold text-navy dark:text-white">Suggested urgency for officers</p>
               <p className="mt-1">
-                <SeverityBadge severity={suggestion.severity} /> · Department {suggestion.department_code || selectedDept?.code || "—"}
+                <SeverityBadge severity={String(suggestion.severity)} /> · Department {String(suggestion.department_code || selectedDept?.code || "—")}
               </p>
-              {files.length ? (
-                <p className="mt-2 text-navy/70 dark:text-slate-300">
-                  {files.length} photo{files.length === 1 ? "" : "s"} attached — officers will review images directly.
-                </p>
-              ) : null}
-              {suggestion.summary ? <p className="mt-2 text-navy/70 dark:text-slate-300">{suggestion.summary}</p> : null}
             </div>
           ) : null}
           <div className="flex flex-wrap gap-2">
@@ -430,6 +474,7 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
   const [images, setImages] = useState<Record<string, string>>({});
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [deleteBusy, setDeleteBusy] = useState(false);
+  const [promoted, setPromoted] = useState(false);
   const privileged = ["OFFICER", "ADMIN", "ADMIN_L1", "ADMIN_L2", "ADMIN_L3"].includes(user?.role || "");
   const isOwnerCitizen =
     user?.role === "CITIZEN" && (item?.reporter_id === user?.id || item?.reporter?.id === user?.id);
@@ -440,6 +485,7 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
   async function load() {
     const doc = await endpoints.complaint(id);
     setItem(doc);
+    setPromoted(Boolean(doc.viewer_has_promoted));
     const map: Record<string, string> = {};
     for (const att of doc.attachments || []) {
       try {
@@ -460,6 +506,7 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
   const next = NEXT_STATUSES[item.status] || [];
 
   async function confirmDeleteReport() {
+    if (!item) return;
     setDeleteBusy(true);
     try {
       await endpoints.deleteComplaint(item.id);
@@ -471,8 +518,21 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
     }
   }
 
+  const progress = (
+    <ProgressTracker
+      steps={INCIDENT_PROGRESS_STEPS}
+      current={incidentProgressIndex(item.status)}
+      orientation={privileged ? "vertical" : "horizontal"}
+      className={
+        privileged
+          ? "rounded-xl border border-navy/8 bg-white/90 p-3 dark:border-white/10 dark:bg-slate-900/80 lg:sticky lg:top-20"
+          : "rounded-2xl bg-white/70 p-4 dark:bg-slate-900/50 sm:p-5"
+      }
+    />
+  );
+
   return (
-    <div className="mx-auto max-w-4xl space-y-8 pb-10">
+    <div className="mx-auto max-w-5xl space-y-6 pb-10 sm:space-y-8">
       <ConfirmDialog
         open={deleteOpen}
         title="Delete this report?"
@@ -485,10 +545,11 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
         }}
         onConfirm={() => void confirmDeleteReport()}
       />
-      <ProgressTracker steps={INCIDENT_PROGRESS_STEPS} current={incidentProgressIndex(item.status)} className="rounded-2xl bg-white/70 p-5 dark:bg-slate-900/50" />
+      {!privileged ? progress : null}
 
-      <div className="space-y-6">
-        <Card className="relative space-y-4 p-6 md:p-8">
+      <div className={cx(privileged ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_9.5rem] lg:gap-5 xl:grid-cols-[minmax(0,1fr)_10.5rem]" : "space-y-4 sm:space-y-6")}>
+        <div className="min-w-0 space-y-4 sm:space-y-5">
+        <Card className="relative space-y-3 p-4 sm:space-y-4 sm:p-5">
           {isOwnerCitizen ? (
             <button
               type="button"
@@ -499,8 +560,13 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
               <Trash2 size={20} aria-hidden />
             </button>
           ) : null}
+          <div className="flex items-start gap-3">
+            <CategoryIconBadge slugOrIcon={item.category?.icon || item.category?.slug} className="mt-1 h-11 w-11 rounded-2xl" size={22} />
+            <div className="min-w-0 flex-1">
           <p className="text-xs font-bold uppercase text-teal">{item.reference}</p>
-          <h1 className={cx("mt-2 text-3xl font-extrabold", isOwnerCitizen && "pr-12")}>{item.title}</h1>
+          <h1 className={cx("mt-1 text-xl font-extrabold sm:text-2xl", isOwnerCitizen && "pr-10")}>{item.title}</h1>
+            </div>
+          </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <StatusBadge status={item.status} />
             <SeverityBadge severity={item.severity} />
@@ -508,6 +574,16 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
           </div>
           <SlaTimer ack={item.sla?.ack_due} resolve={item.sla?.resolve_due} />
           {item.department?.name ? <p className="text-sm text-navy/60">Routed to {item.department.name}</p> : null}
+          {privileged && item.reporter?.phone ? (
+            <p className="text-sm font-medium text-navy/80 dark:text-slate-200">
+              Reporter: {item.reporter.display_name} · <a href={`tel:${item.reporter.phone}`} className="text-teal">{item.reporter.phone}</a>
+            </p>
+          ) : null}
+          {isOwnerCitizen && item.assignee?.phone ? (
+            <p className="text-sm font-medium text-navy/80 dark:text-slate-200">
+              Assigned officer: {item.assignee.display_name} · <a href={`tel:${item.assignee.phone}`} className="text-teal">{item.assignee.phone}</a>
+            </p>
+          ) : null}
           <p className="text-base leading-relaxed text-navy/80 dark:text-slate-200">{item.description}</p>
           <p className="flex items-center gap-2 text-sm font-medium text-navy/70 dark:text-slate-300">
             <MapPin size={16} className="shrink-0 text-teal" aria-hidden /> {item.locality}
@@ -519,7 +595,14 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
                 Urgency: <SeverityBadge severity={item.severity} />
                 {item.department?.code ? <span className="text-navy/70">· {item.department.code}</span> : null}
               </p>
-              {item.ai_rationale ? <p className="mt-2 text-navy/70">{item.ai_rationale}</p> : null}
+              {item.ai_rationale && item.ai_rationale !== "No Summary" ? (
+                <p className="mt-2 text-navy/70">{item.ai_rationale}</p>
+              ) : (
+                <p className="mt-2 rounded-lg bg-white/60 p-2 text-navy/80 dark:bg-slate-900/50">
+                  <span className="font-semibold">Citizen description: </span>
+                  {item.description}
+                </p>
+              )}
               <p className="mt-2 text-xs text-navy/50">Review citizen photos below. Override status or assignment anytime.</p>
             </div>
           ) : null}
@@ -528,10 +611,20 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
           ) : null}
           {user?.role === "CITIZEN" && !isOwnerCitizen ? (
             <div className="flex flex-wrap gap-3 pt-2">
-              <Button type="button" variant="soft" onClick={async () => { try { await endpoints.promote(item.id); toast("Promoted", "ok"); await load(); } catch (err) { toast(err instanceof Error ? err.message : "Could not promote", "err"); } }}>
-                <HandHelping size={16} aria-hidden />
-                Promote {item.counters?.promotes ? `(${item.counters.promotes})` : ""}
-              </Button>
+              <PromoteButton
+                promoted={promoted}
+                count={item.counters?.promotes}
+                onClick={async () => {
+                  try {
+                    await endpoints.promote(item.id);
+                    setPromoted(true);
+                    toast("Promoted", "ok");
+                    await load();
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : "Could not promote", "err");
+                  }
+                }}
+              />
               {item.source === "auto_weather" ? (
                 <Button type="button" variant="ghost" onClick={async () => { try { await endpoints.better(item.id); toast("Marked currently better"); await load(); } catch (err) { toast(err instanceof Error ? err.message : "Could not vote", "err"); } }}>
                   Currently better
@@ -550,8 +643,8 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
             </div>
           ) : null}
         </Card>
-        <Card className="space-y-4 p-6">
-          <h2 className="text-lg font-bold">Photos & evidence</h2>
+        <Card className="space-y-3 p-4 sm:p-5">
+          <h2 className="text-base font-bold sm:text-lg">Photos & evidence</h2>
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
             {(item.attachments || []).length ? (
               (item.attachments || []).map((att) =>
@@ -566,14 +659,15 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
             )}
           </div>
         </Card>
-        <Card className="space-y-4 p-6">
-          <h2 className="text-lg font-bold">Conversation</h2>
+        <Card className="space-y-3 p-4 sm:p-5">
+          <h2 className="text-base font-bold sm:text-lg">Conversation</h2>
           <div className="space-y-3">
             {(item.comments || []).map((c) => (
               <div key={c.id} className={cx("rounded-2xl p-3 text-sm", c.is_internal ? "bg-peach/50" : "bg-foam")}>
                 {c.is_internal ? <p className="text-xs font-bold">Internal</p> : null}
-                <p>{c.body}</p>
-                <p className="text-xs text-navy/50">{formatDate(c.created_at)}</p>
+                <p className="font-semibold text-navy dark:text-white">{c.author?.display_name || "Community member"}</p>
+                <p className="mt-1 text-navy/80 dark:text-slate-200">{c.body}</p>
+                <p className="mt-1 text-xs text-navy/50">{formatDate(c.created_at)}</p>
               </div>
             ))}
           </div>
@@ -607,8 +701,8 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
           </Card>
         ) : null}
         {privileged ? (
-          <Card className="space-y-4 p-6">
-            <h2 className="font-bold">Officer actions</h2>
+          <Card className="space-y-3 p-4 sm:p-5">
+            <h2 className="text-base font-bold">Officer actions</h2>
             <Button type="button" variant="soft" onClick={async () => { try { await endpoints.claim(item.id); toast("Claimed"); await load(); } catch (err) { toast(err instanceof Error ? err.message : "Could not claim", "err"); } }}>
               Claim / add to my board
             </Button>
@@ -652,12 +746,9 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
             >
               Assign
             </Button>
-            <Input
-              type="file"
-              accept="image/*"
-              onChange={async (e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
+            <FileAttachButton
+              label="Add evidence photo"
+              onFile={async (file) => {
                 await endpoints.attach(item.id, file, "evidence");
                 toast("Evidence uploaded");
                 await load();
@@ -685,6 +776,14 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
       <Link to={base} className="inline-block text-sm font-semibold text-teal">
         Back to list
       </Link>
+        </div>
+        {privileged ? (
+          <aside className="hidden lg:block">
+            <p className="mb-2 text-[10px] font-bold uppercase tracking-wide text-navy/45">Progress</p>
+            {progress}
+          </aside>
+        ) : null}
+        {privileged ? <div className="lg:hidden">{progress}</div> : null}
       </div>
     </div>
   );
@@ -792,7 +891,10 @@ export function ProfilePage() {
       <h1 className="text-3xl font-extrabold dark:text-white">My account</h1>
       <p className="text-sm text-navy/60 dark:text-slate-400">{user?.email} · {user?.role}</p>
       {!locality.trim() ? (
-        <p className="rounded-2xl bg-peach/40 px-3 py-2 text-sm font-medium text-navy">Choose your locality so we can route reports in Tambaram.</p>
+        <p className="rounded-2xl bg-peach/40 px-3 py-2 text-sm font-medium text-navy">Choose your locality so we can route reports correctly.</p>
+      ) : null}
+      {!(phone || "").trim() ? (
+        <p className="rounded-2xl bg-coral/40 px-3 py-2 text-sm font-medium text-navy">Add your mobile number so officers and citizens can reach you when needed.</p>
       ) : null}
       <Field label="Display name">
         <Input value={name} onChange={(e) => setName(e.target.value)} />
@@ -811,22 +913,26 @@ export function ProfilePage() {
           ))}
         </select>
       </Field>
-      <Field label="Phone (optional)">
-        <Input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" autoComplete="tel" />
+      <Field label="Mobile number">
+        <Input value={phone} onChange={(e) => setPhone(e.target.value)} type="tel" autoComplete="tel" required minLength={8} />
       </Field>
       <Field label="Date of birth (optional)">
         <Input value={dob} onChange={(e) => setDob(e.target.value)} type="date" />
       </Field>
       <Button
         type="button"
-        disabled={!dirty || saving}
+        disabled={!dirty || saving || (phone || "").trim().length < 8}
         onClick={async () => {
+          if ((phone || "").trim().length < 8) {
+            toast("Add a valid mobile number (at least 8 digits)", "err");
+            return;
+          }
           setSaving(true);
           try {
             await endpoints.profile({
               display_name: name,
               locality: locality || undefined,
-              phone: phone || undefined,
+              phone: phone.trim(),
               date_of_birth: dob || undefined,
             });
             await refreshMe();

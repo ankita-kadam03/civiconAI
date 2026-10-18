@@ -1,5 +1,6 @@
 import { ImagePlus, Leaf, X } from "lucide-react";
 import { forwardRef, useState, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode, type TextareaHTMLAttributes } from "react";
+import { useFileObjectUrls } from "../lib/file-previews";
 import { cx } from "../lib/format";
 
 export function Button({
@@ -106,6 +107,46 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={cx("animate-pulse rounded-2xl bg-navy/10 dark:bg-white/10", className)} />;
 }
 
+export function FileAttachButton({
+  accept = "image/jpeg,image/png,image/webp,image/heic,image/heif",
+  label = "Choose file",
+  busy = false,
+  onFile,
+}: {
+  accept?: string;
+  label?: string;
+  busy?: boolean;
+  onFile: (file: File) => void | Promise<void>;
+}) {
+  const inputId = `file-attach-${label.replace(/\s+/g, "-").toLowerCase()}`;
+  return (
+    <div>
+      <input
+        id={inputId}
+        type="file"
+        accept={accept}
+        className="sr-only"
+        disabled={busy}
+        onChange={(e) => {
+          const file = e.target.files?.[0];
+          e.target.value = "";
+          if (file) void onFile(file);
+        }}
+      />
+      <label
+        htmlFor={inputId}
+        className={cx(
+          "inline-flex cursor-pointer items-center gap-2 rounded-full border-2 border-dashed border-teal/50 bg-mint/30 px-4 py-2 text-sm font-semibold text-navy transition hover:border-teal hover:bg-mint/60 dark:border-teal/40 dark:bg-teal/10 dark:text-white",
+          busy && "pointer-events-none opacity-60",
+        )}
+      >
+        <ImagePlus size={18} className="text-teal" aria-hidden />
+        {busy ? "Uploading…" : label}
+      </label>
+    </div>
+  );
+}
+
 export function FileUpload({
   files,
   onChange,
@@ -118,6 +159,7 @@ export function FileUpload({
   accept?: string;
 }) {
   const inputId = "civicon-file-upload";
+  const previewUrls = useFileObjectUrls(files);
   function add(next: FileList | null) {
     if (!next?.length) return;
     const merged = [...files, ...Array.from(next)].slice(0, max);
@@ -149,8 +191,12 @@ export function FileUpload({
       {files.length ? (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           {files.map((file, index) => (
-            <li key={`${file.name}-${index}`} className="relative overflow-hidden rounded-2xl">
-              <img src={URL.createObjectURL(file)} alt="" className="h-32 w-full object-cover" />
+            <li key={`${file.name}-${file.size}-${file.lastModified}`} className="relative overflow-hidden rounded-2xl">
+              {previewUrls[index] ? (
+                <img src={previewUrls[index]} alt="" className="h-32 w-full object-cover" />
+              ) : (
+                <div className="h-32 animate-pulse bg-navy/10" />
+              )}
               <button
                 type="button"
                 className="absolute right-2 top-2 rounded-full bg-navy/80 p-1 text-white"

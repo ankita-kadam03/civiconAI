@@ -4,6 +4,7 @@ export const signupSchema = z.object({
   display_name: z.string().min(2, "Please add your name").max(80),
   email: z.string().email("Enter a valid email"),
   password: z.string().min(8, "Use at least 8 characters").max(72),
+  phone: z.string().min(8, "Add a mobile number officers can reach").max(20),
   locality: z.string().max(120).optional(),
 });
 

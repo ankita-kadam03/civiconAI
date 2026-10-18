@@ -74,7 +74,14 @@ class Settings(BaseSettings):
     bigquery_dataset: str = ""
     require_gemini: bool = Field(default=True, validation_alias=AliasChoices("REQUIRE_GEMINI", "REQUIRE_VERTEX_AI"))
     require_bigquery: bool = Field(default=True, validation_alias="REQUIRE_BIGQUERY")
-    weather_base_url: str = ""
+    google_server_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_SERVER_API_KEY", "GOOGLE_WEATHER_SERVER_KEY"),
+    )
+    google_maps_api_key: str = Field(
+        default="",
+        validation_alias=AliasChoices("GOOGLE_MAPS_API_KEY", "GOOGLE_WEATHER_API_KEY"),
+    )
     firebase_project_id: str = ""
     cors_origins: str = "http://localhost:5173,http://127.0.0.1:5173,http://localhost:5174,http://127.0.0.1:5174"
     database_url: str = Field(default="", description="Legacy; ignored")

@@ -3,9 +3,9 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from app.db import Database
-from app.deps import db_dep
+from app.deps import db_dep, optional_user
 from app.errors import AppError
-from app.serialize import complaint_public, dt
+from app.serialize import complaint_public, dt, serialize_comments, user_has_promoted
 from app.services.storage import storage_service
 
 router = APIRouter(tags=["public"])
@@ -105,7 +105,11 @@ def public_complaints(
 
 
 @router.get("/api/public/complaints/{reference}")
-def public_complaint(reference: str, db: Database = Depends(db_dep)):
+def public_complaint(
+    reference: str,
+    db: Database = Depends(db_dep),
+    user: dict | None = Depends(optional_user),
+):
     doc = db.col("complaints").find_one({"$or": [{"reference": reference.upper()}, {"_id": reference}], "is_public": True})
     if not doc:
         raise AppError("Incident not found", 404, "NOT_FOUND")
@@ -114,12 +118,16 @@ def public_complaint(reference: str, db: Database = Depends(db_dep)):
         a
         for a in db.col("attachments").find({"incident_id": doc["_id"], "is_private": False})
     ]
+    comments = list(db.col("comments").find({"incident_id": doc["_id"], "is_internal": False}).sort("created_at", 1))
     body = _enrich(db, doc, False)
     body["history"] = [
         {"id": h["_id"], "from_status": h.get("from_status"), "to_status": h.get("to_status"), "created_at": dt(h.get("created_at"))}
         for h in history
     ]
     body["attachments"] = [{"id": a["_id"], "kind": a.get("kind")} for a in attachments]
+    body["comments"] = serialize_comments(db, comments)
+    if user:
+        body["viewer_has_promoted"] = user_has_promoted(db, doc["_id"], user["_id"])
     return body
 
 
@@ -153,35 +161,9 @@ def public_config(db: Database = Depends(db_dep)):
 
 @router.get("/api/public/weather")
 def public_weather(lat: float = Query(..., ge=-90, le=90), lng: float = Query(..., ge=-180, le=180)):
-    import httpx
+    from app.services.weather_client import fetch_current
 
-    from app.config import get_settings
-
-    settings = get_settings()
-    url = (settings.weather_base_url or "").strip()
-    if not url:
-        return {"ok": False, "error": "WEATHER_NOT_CONFIGURED", "message": "Set WEATHER_BASE_URL to a forecast API endpoint you operate."}
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            res = client.get(
-                url,
-                params={
-                    "latitude": lat,
-                    "longitude": lng,
-                    "current": "temperature_2m,precipitation,weather_code",
-                },
-            )
-            res.raise_for_status()
-            data = res.json()
-        current = data.get("current") or {}
-        return {
-            "ok": True,
-            "temperature_c": current.get("temperature_2m"),
-            "precipitation": current.get("precipitation"),
-            "weather_code": current.get("weather_code"),
-        }
-    except Exception as exc:  # noqa: BLE001
-        return {"ok": False, "error": type(exc).__name__}
+    return fetch_current(lat, lng)
 
 
 @router.get("/api/public/bootstrap")
@@ -225,7 +207,10 @@ def public_bootstrap(db: Database = Depends(db_dep)):
         "integrations": {
             "gcs": storage_service.health(),
             "pubsub": pubsub_service.health(),
-            "weather": {"configured": bool((settings.weather_base_url or "").strip())},
+            "weather": {
+                "configured": bool((settings.google_server_api_key or settings.google_maps_api_key or "").strip()),
+                "provider": "google_weather",
+            },
             "fcm": {"configured": bool(settings.firebase_project_resolved)},
         },
         "push_note": "In-app notifications are stored in the database. Browser push (FCM) requires Firebase Cloud Messaging and a registered service worker.",

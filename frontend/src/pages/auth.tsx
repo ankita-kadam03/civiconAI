@@ -11,7 +11,7 @@ import { useToast } from "../lib/toast";
 
 function AuthFrame({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <div className="mx-auto grid max-w-5xl gap-8 md:grid-cols-2">
+    <div className="mx-auto grid w-full max-w-5xl gap-6 px-1 sm:gap-8 md:grid-cols-2">
       <div className="hidden rounded-3xl bg-gradient-to-br from-lavender via-sky to-mint p-8 md:block">
         <p className="text-sm font-bold text-teal">Civicon AI</p>
         <h2 className="mt-6 text-4xl font-extrabold text-navy">A calmer way to look after your street.</h2>
@@ -74,7 +74,10 @@ export function SignupPage() {
   const toast = useToast();
   const navigate = useNavigate();
   const [localities, setLocalities] = useState<Array<{ id: string; name: string }>>([]);
-  const form = useForm({ resolver: zodResolver(signupSchema), defaultValues: { display_name: "", email: "", password: "", locality: "" } });
+  const form = useForm({
+    resolver: zodResolver(signupSchema),
+    defaultValues: { display_name: "", email: "", password: "", phone: "", locality: "" },
+  });
   useEffect(() => {
     endpoints.localities().then(setLocalities).catch(() => undefined);
   }, []);

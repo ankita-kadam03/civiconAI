@@ -99,3 +99,37 @@ def attachment_public(doc: dict) -> dict:
         "is_private": doc.get("is_private", True),
         "created_at": dt(doc.get("created_at")),
     }
+
+
+def serialize_comments(db, comments: list[dict]) -> list[dict]:
+    author_ids = [c.get("author_id") for c in comments if c.get("author_id")]
+    users_by_id: dict[str, dict] = {}
+    if author_ids:
+        for user in db.col("users").find({"_id": {"$in": author_ids}}):
+            users_by_id[user["_id"]] = user
+    rows: list[dict] = []
+    for comment in comments:
+        author_id = comment.get("author_id")
+        author = users_by_id.get(author_id) or {}
+        rows.append(
+            {
+                "id": comment["_id"],
+                "body": comment["body"],
+                "is_internal": comment.get("is_internal", False),
+                "author_id": author_id,
+                "author": {
+                    "id": author_id,
+                    "display_name": author.get("display_name") or "Community member",
+                },
+                "created_at": dt(comment.get("created_at")),
+            }
+        )
+    return rows
+
+
+def user_has_promoted(db, incident_id: str, user_id: str | None) -> bool:
+    if not user_id:
+        return False
+    return bool(
+        db.col("votes").find_one({"incident_id": incident_id, "uid": user_id, "type": "promote"})
+    )

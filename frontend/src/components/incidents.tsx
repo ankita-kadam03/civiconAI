@@ -1,8 +1,10 @@
-import { MapPin } from "lucide-react";
+import { HandHelping, MapPin } from "lucide-react";
+import type { ButtonHTMLAttributes } from "react";
 import { Link } from "react-router-dom";
+import { CategoryIconBadge } from "../lib/category-icons";
 import type { Complaint } from "../lib/types";
-import { formatDate, severityTone, statusLabel, statusTone } from "../lib/format";
-import { Card } from "./ui";
+import { cx, formatDate, severityTone, statusLabel, statusTone } from "../lib/format";
+import { Button, Card } from "./ui";
 
 function locationLine(incident: Complaint): string {
   if (incident.locality?.trim()) return incident.locality.trim();
@@ -21,7 +23,31 @@ export function SeverityBadge({ severity }: { severity?: string }) {
   return <span className={`chip ${severityTone(severity)}`}>{severity || "—"}</span>;
 }
 
+export function PromoteButton({
+  promoted,
+  count,
+  className,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & { promoted?: boolean; count?: number }) {
+  return (
+    <Button
+      type="button"
+      variant={promoted ? "primary" : "ghost"}
+      className={cx(
+        promoted ? "" : "border border-navy/15 bg-white shadow-sm hover:bg-mint/30 dark:border-white/15 dark:bg-slate-900/60",
+        className,
+      )}
+      {...props}
+    >
+      <HandHelping size={16} className={promoted ? "fill-current" : ""} aria-hidden />
+      {promoted ? "Promoted" : "Promote"}
+      {count ? ` (${count})` : ""}
+    </Button>
+  );
+}
+
 export function IncidentCard({ incident, to }: { incident: Complaint; to: string }) {
+  const iconKey = incident.category?.icon || incident.category?.slug;
   return (
     <Link to={to} className="block">
       <Card className="h-full transition hover:-translate-y-0.5 hover:shadow-card">
@@ -29,6 +55,9 @@ export function IncidentCard({ incident, to }: { incident: Complaint; to: string
           <StatusBadge status={incident.status} />
           <SeverityBadge severity={incident.severity} />
         </div>
+        <div className="flex items-start gap-3">
+          <CategoryIconBadge slugOrIcon={iconKey} />
+          <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal">{incident.reference}</p>
         <h3 className="mt-1 text-lg font-bold text-navy dark:text-white">{incident.title}</h3>
         <p className="mt-2 line-clamp-2 text-sm text-navy/70 dark:text-slate-300">{incident.summary || incident.description}</p>
@@ -39,6 +68,8 @@ export function IncidentCard({ incident, to }: { incident: Complaint; to: string
         <p className="mt-2 text-xs text-navy/50">
           {incident.department?.name || "Civic desk"} · {formatDate(incident.created_at)}
         </p>
+          </div>
+        </div>
       </Card>
     </Link>
   );

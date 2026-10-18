@@ -1,6 +1,6 @@
 import { ChevronLeft, ChevronRight } from "lucide-react";
+import { Link } from "react-router-dom";
 import { useEffect, useState } from "react";
-import { IncidentCard } from "../../components/incidents";
 import { Button, Card, EmptyState, Skeleton } from "../../components/ui";
 import { endpoints } from "../../lib/api";
 import { useAuth } from "../../lib/auth";
@@ -23,11 +23,65 @@ function bucketIncident(item: Complaint, userId?: string): string {
   return "In progress";
 }
 
-function verificationHint(item: Complaint) {
-  const yes = item.counters?.yes ?? 0;
-  const no = item.counters?.no ?? 0;
-  if (!yes && !no) return null;
-  return `${yes} confirmed fixed · ${no} still an issue`;
+function KanbanCard({ item, href }: { item: Complaint; href: string }) {
+  return (
+    <Link
+      to={href}
+      className="block rounded-lg border border-navy/10 bg-white px-2 py-1.5 transition hover:border-teal/40 dark:border-white/10 dark:bg-slate-900"
+    >
+      <p className="truncate font-mono text-[10px] font-bold text-teal">{item.reference}</p>
+      <p className="mt-0.5 line-clamp-2 text-[11px] font-semibold leading-snug text-navy dark:text-white">{item.title}</p>
+      <p className="mt-1 truncate text-[10px] text-navy/55 dark:text-slate-400">{item.locality || "No locality"}</p>
+      <div className="mt-1.5">
+        <SlaTimer compact ack={item.sla?.ack_due} resolve={item.sla?.resolve_due} />
+      </div>
+    </Link>
+  );
+}
+
+function KanbanColumn({
+  title,
+  rows,
+  href,
+  onClaim,
+}: {
+  title: string;
+  rows: Complaint[];
+  href: (id: string) => string;
+  onClaim?: (id: string) => void;
+}) {
+  return (
+    <div className="min-w-0 rounded-xl border border-navy/8 bg-white/70 p-2 dark:border-white/10 dark:bg-slate-900/50">
+      <div className="mb-1.5 flex items-center justify-between gap-1 border-b border-navy/5 pb-1 dark:border-white/5">
+        <h2 className="truncate text-[11px] font-bold uppercase tracking-wide text-navy/80 dark:text-slate-200">{title}</h2>
+        <span className="rounded bg-lavender/80 px-1.5 py-0.5 text-[10px] font-bold tabular-nums">{rows.length}</span>
+      </div>
+      {rows.length ? (
+        <ul className="flex flex-col gap-1.5">
+          {rows.slice(0, 25).map((item) => (
+            <li key={item.id}>
+              <KanbanCard item={item} href={href(item.id)} />
+              {title === "New" && onClaim ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  className="mt-1 h-6 w-full py-0 text-[10px]"
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onClaim(item.id);
+                  }}
+                >
+                  Claim
+                </Button>
+              ) : null}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="py-1 text-[10px] text-navy/40 dark:text-slate-500">—</p>
+      )}
+    </div>
+  );
 }
 
 function Kanban({ items, href }: { items: Complaint[]; href: (id: string) => string }) {
@@ -53,46 +107,26 @@ function Kanban({ items, href }: { items: Complaint[]; href: (id: string) => str
     ["Overdue", buckets.Overdue],
   ];
   return (
-    <div className="-mx-1 flex gap-3 overflow-x-auto pb-2">
+    <div className="grid grid-cols-2 items-start gap-2 sm:grid-cols-3 lg:grid-cols-6">
       {columns.map(([title, rows]) => (
-        <Card key={title} className="min-w-[15rem] max-w-[15rem] shrink-0 space-y-2 bg-white/80 p-3 dark:bg-slate-900/80">
-          <div className="flex items-center justify-between gap-2">
-            <h2 className="text-sm font-bold">{title}</h2>
-            <span className="rounded-full bg-lavender px-2 py-0.5 text-xs font-semibold">{rows.length}</span>
-          </div>
-          <div className="max-h-[32rem] space-y-2 overflow-y-auto pr-0.5">
-            {rows.length ? (
-              rows.slice(0, 12).map((item) => (
-                <div key={item.id} className="space-y-1.5 rounded-2xl border border-navy/5 bg-white/90 p-2 dark:border-white/10 dark:bg-slate-900">
-                  <IncidentCard incident={item} to={href(item.id)} />
-                  {title === "Verification" && verificationHint(item) ? (
-                    <p className="px-1 text-[11px] font-medium text-teal">{verificationHint(item)}</p>
-                  ) : null}
-                  <SlaTimer ack={item.sla?.ack_due} resolve={item.sla?.resolve_due} />
-                  {title === "New" ? (
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      className="h-8 w-full py-0 text-xs"
-                      onClick={async () => {
-                        try {
-                          await endpoints.claim(item.id);
-                          toast("Added to your board");
-                        } catch (err) {
-                          toast(err instanceof Error ? err.message : "Could not claim", "err");
-                        }
-                      }}
-                    >
-                      Claim
-                    </Button>
-                  ) : null}
-                </div>
-              ))
-            ) : (
-              <p className="text-xs text-navy/50">Nothing here.</p>
-            )}
-          </div>
-        </Card>
+        <KanbanColumn
+          key={title}
+          title={title}
+          rows={rows}
+          href={href}
+          onClaim={
+            title === "New"
+              ? async (id) => {
+                  try {
+                    await endpoints.claim(id);
+                    toast("Added to your board");
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : "Could not claim", "err");
+                  }
+                }
+              : undefined
+          }
+        />
       ))}
     </div>
   );
@@ -103,24 +137,46 @@ export function ActiveReportCarousel({ items, href }: { items: Complaint[]; href
   const open = items.filter((i) => !["CLOSED", "REJECTED", "closed"].includes(i.status || ""));
   const list = open.length ? open : items;
   if (!list.length) {
-    return <p className="text-sm text-navy/50 dark:text-slate-500">No open reports</p>;
+    return <p className="text-xs text-navy/50 dark:text-slate-500">No open reports</p>;
   }
   const item = list[index % list.length];
+  const navBtn =
+    "flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-navy/10 bg-white text-navy hover:bg-mint/40 disabled:opacity-30 dark:border-white/15 dark:bg-slate-800 dark:text-white";
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
-        <Button type="button" variant="ghost" className="h-8 w-8 p-0" aria-label="Previous" onClick={() => setIndex((i) => (i - 1 + list.length) % list.length)}>
-          <ChevronLeft size={18} />
-        </Button>
-        <p className="text-xs font-semibold text-navy/50">
-          {index + 1} / {list.length}
-        </p>
-        <Button type="button" variant="ghost" className="h-8 w-8 p-0" aria-label="Next" onClick={() => setIndex((i) => (i + 1) % list.length)}>
-          <ChevronRight size={18} />
-        </Button>
+        <span className="text-[10px] font-bold uppercase tracking-wide text-navy/50">
+          Active · {index + 1}/{list.length}
+        </span>
+        <div className="flex gap-1">
+          <button type="button" className={navBtn} aria-label="Previous" disabled={list.length < 2} onClick={() => setIndex((i) => (i - 1 + list.length) % list.length)}>
+            <ChevronLeft size={16} aria-hidden />
+          </button>
+          <button type="button" className={navBtn} aria-label="Next" disabled={list.length < 2} onClick={() => setIndex((i) => (i + 1) % list.length)}>
+            <ChevronRight size={16} aria-hidden />
+          </button>
+        </div>
       </div>
-      <IncidentCard incident={item} to={href(item.id)} />
+      <Link
+        to={href(item.id)}
+        className="block rounded-xl border border-navy/10 bg-white p-3 transition hover:border-teal/35 dark:border-white/10 dark:bg-slate-900"
+      >
+        <p className="font-mono text-[10px] font-bold text-teal">{item.reference}</p>
+        <p className="mt-1 line-clamp-2 text-sm font-bold leading-snug text-navy dark:text-white">{item.title}</p>
+        <p className="mt-1 truncate text-xs text-navy/60">{item.locality || "Location pending"}</p>
+      </Link>
     </div>
+  );
+}
+
+function BoardHero({ kicker, title, body }: { kicker: string; title: string; body: string }) {
+  return (
+    <Card className="bg-gradient-to-r from-mint via-white to-sky p-4 sm:p-5">
+      <p className="text-xs font-semibold text-teal sm:text-sm">{kicker}</p>
+      <h1 className="mt-1 text-2xl font-extrabold sm:text-3xl">{title}</h1>
+      <p className="mt-2 text-sm text-navy/70">{body}</p>
+    </Card>
   );
 }
 
@@ -136,70 +192,59 @@ export function L1Board() {
       .finally(() => setLoading(false));
   }, []);
   if (loading) return <Skeleton className="h-64" />;
-  const mine = items.filter((i) => bucketIncident(i, user?.id) === "Mine" || i.claimed_by === user?.id);
   return (
-    <div className="space-y-6">
-      <Card className="bg-gradient-to-r from-mint via-white to-sky">
-        <p className="text-sm font-semibold text-teal">Level 1 · local inbox</p>
-        <h1 className="mt-1 text-3xl font-extrabold">Neighbourhood board</h1>
-        <p className="mt-2 text-navy/70">
-          Signed in as {user?.role?.replaceAll("_", " ") || "officer"}
-          {user?.locality ? ` · ${user.locality}` : ""}. All Tambaram reports are visible — claim work and keep updates short.
-        </p>
-      </Card>
-      <Card className="space-y-3">
-        <h2 className="text-lg font-bold">Active report</h2>
-        <ActiveReportCarousel items={mine.length ? mine : items} href={(id) => `/officer/incidents/${id}`} />
-      </Card>
-      {items.length ? <Kanban items={items} href={(id) => `/officer/incidents/${id}`} /> : <EmptyState title="Inbox is clear" body="New reports will appear here for all L1 officers." />}
+    <div className="space-y-4 sm:space-y-6">
+      <BoardHero
+        kicker="Level 1 · local inbox"
+        title="Neighbourhood board"
+        body={`Signed in as ${user?.role?.replaceAll("_", " ") || "officer"}${user?.locality ? ` · ${user.locality}` : ""}. Claim new work and keep updates short.`}
+      />
+      {items.length ? <Kanban items={items} href={(id) => `/officer/incidents/${id}`} /> : <EmptyState title="Inbox is clear" body="New reports will appear here." />}
     </div>
   );
 }
 
 export function L2Board() {
-  const { user } = useAuth();
   const [items, setItems] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     endpoints
       .complaints("?page_size=80")
       .then((res) => setItems(res.items))
-      .catch(() => setItems([]));
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
   }, []);
+  if (loading) return <Skeleton className="h-64" />;
   return (
-    <div className="space-y-6">
-      <Card className="bg-gradient-to-r from-lavender via-white to-peach">
-        <p className="text-sm font-semibold text-teal">Level 2 · regional oversight</p>
-        <h1 className="text-3xl font-extrabold">Regional board</h1>
-        <p className="mt-2 text-navy/70">All municipal reports are listed. Completed only after the reporter confirms the fix.</p>
-      </Card>
-      <Card className="space-y-3">
-        <h2 className="text-lg font-bold">Active report</h2>
-        <ActiveReportCarousel items={items} href={(id) => `/l2/incidents/${id}`} />
-      </Card>
-      {items.length ? <Kanban items={items} href={(id) => `/l2/incidents/${id}`} /> : <EmptyState title="No reports yet" body="Reports will appear here for all L2 officers." />}
+    <div className="space-y-4 sm:space-y-6">
+      <BoardHero
+        kicker="Level 2 · regional oversight"
+        title="Regional board"
+        body="All municipal reports are listed. Completed only after the reporter confirms the fix."
+      />
+      {items.length ? <Kanban items={items} href={(id) => `/l2/incidents/${id}`} /> : <EmptyState title="No reports yet" body="Reports will appear here for L2 officers." />}
     </div>
   );
 }
 
 export function L3Board() {
   const [items, setItems] = useState<Complaint[]>([]);
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     endpoints
       .complaints("?page_size=80")
       .then((res) => setItems(res.items))
-      .catch(() => setItems([]));
+      .catch(() => setItems([]))
+      .finally(() => setLoading(false));
   }, []);
+  if (loading) return <Skeleton className="h-64" />;
   return (
-    <div className="space-y-6">
-      <Card className="bg-gradient-to-r from-peach via-white to-sky">
-        <p className="text-sm font-semibold text-teal">Level 3 · municipal</p>
-        <h1 className="text-3xl font-extrabold">Municipal board</h1>
-        <p className="mt-2 text-navy/70">Full visibility across Tambaram. Verification waits on citizen approval before Completed.</p>
-      </Card>
-      <Card className="space-y-3">
-        <h2 className="text-lg font-bold">Active report</h2>
-        <ActiveReportCarousel items={items} href={(id) => `/l3/incidents/${id}`} />
-      </Card>
+    <div className="space-y-4 sm:space-y-6">
+      <BoardHero
+        kicker="Level 3 · municipal"
+        title="Municipal board"
+        body="Full visibility across the service area. Verification waits on citizen approval before Completed."
+      />
       {items.length ? <Kanban items={items} href={(id) => `/l3/incidents/${id}`} /> : <EmptyState title="No reports yet" body="Reports will appear here for L3." />}
     </div>
   );

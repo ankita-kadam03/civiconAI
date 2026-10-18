@@ -25,7 +25,7 @@ function triggerMapResize(map: GoogleMapHandle) {
   }, 80);
 }
 
-/** Hero map: municipal boundary + all public issue pins in Tambaram. */
+/** Hero map: municipal boundary + public issue pins. */
 export function HomePreviewMap() {
   const googleRef = useRef<HTMLDivElement>(null);
   const [error, setError] = useState("");

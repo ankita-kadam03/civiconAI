@@ -5,6 +5,7 @@ import { landingNavSections } from "../pages/public";
 import { notificationTabs, roleHome } from "../features/auth/paths";
 import { useAuth } from "../lib/auth";
 import { cx } from "../lib/format";
+import { WeatherAlertBar } from "../features/weather/WeatherAlertBar";
 import { CiviChat } from "./chat";
 import { endpoints } from "../lib/api";
 import { initPwaInstallListener, isStandalonePwa, promptPwaInstall } from "../lib/pwa-install";
@@ -100,12 +101,12 @@ export function Shell() {
   return (
     <div className="min-h-screen">
       <header className="sticky top-0 z-40 border-b border-white/60 bg-white/70 backdrop-blur-md dark:border-white/10 dark:bg-slate-950/70">
-        <div className="mx-auto flex max-w-6xl items-center justify-between px-4 py-3">
-          <Link to="/" className="flex items-center gap-2 font-extrabold text-navy dark:text-white">
-            <span className="flex h-9 w-9 items-center justify-center rounded-2xl bg-teal text-white">
+        <div className="mx-auto flex max-w-6xl items-center justify-between gap-2 px-3 py-2.5 sm:px-4 sm:py-3">
+          <Link to="/" className="flex min-w-0 items-center gap-2 font-extrabold text-navy dark:text-white">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-2xl bg-teal text-white">
               <Leaf size={18} />
             </span>
-            Civicon AI
+            <span className="truncate text-sm sm:text-base">Civicon AI</span>
           </Link>
           <nav className="hidden items-center gap-1 md:flex">
             {!user
@@ -206,14 +207,27 @@ export function Shell() {
                   </Link>
                 ))}
             {user ? (
-              <button type="button" className="block w-full rounded-2xl px-3 py-2 text-left text-sm font-semibold" onClick={logout}>
-                Sign out
-              </button>
-            ) : null}
+              <>
+                <Link to="/app/profile" className="block rounded-2xl px-3 py-2 text-sm font-semibold hover:bg-white dark:hover:bg-slate-800 md:hidden">
+                  My account
+                </Link>
+                <Link to="/app/notifications" className="block rounded-2xl px-3 py-2 text-sm font-semibold hover:bg-white dark:hover:bg-slate-800 md:hidden">
+                  Notifications{unread ? ` (${unread})` : ""}
+                </Link>
+                <button type="button" className="block w-full rounded-2xl px-3 py-2 text-left text-sm font-semibold" onClick={logout}>
+                  Sign out
+                </button>
+              </>
+            ) : (
+              <Link to="/login" className="block rounded-2xl px-3 py-2 text-sm font-semibold hover:bg-white dark:hover:bg-slate-800">
+                Sign in
+              </Link>
+            )}
           </div>
         ) : null}
       </header>
-      <main className="mx-auto max-w-6xl px-4 py-8">
+      <WeatherAlertBar />
+      <main className="mx-auto min-w-0 max-w-6xl px-3 py-5 sm:px-4 sm:py-8">
         <Outlet />
       </main>
       <footer className="mt-12 border-t border-navy/10 bg-foam/40 py-10 text-sm text-navy/65 dark:border-white/10 dark:bg-slate-900/40 dark:text-slate-400">
@@ -272,13 +286,24 @@ export function Protected({ roles }: { roles?: Role[] }) {
     location.pathname !== "/" &&
     !(user.locality || "").trim();
 
+  const needsPhone =
+    !!user &&
+    !location.pathname.startsWith("/app/profile") &&
+    location.pathname !== "/" &&
+    !(user.phone || "").trim();
+
   useEffect(() => {
     if (loading || !user || !needsProfile) return;
     navigate("/app/profile", { replace: true, state: { from: location.pathname, setup: true } });
   }, [loading, user, needsProfile, navigate, location.pathname]);
 
+  useEffect(() => {
+    if (loading || !user || !needsPhone) return;
+    navigate("/app/profile", { replace: true, state: { from: location.pathname, setup: true, needPhone: true } });
+  }, [loading, user, needsPhone, navigate, location.pathname]);
+
   if (loading || !user) return <div className="card h-40 animate-pulse" />;
   if (roles && !roles.includes(user.role)) return null;
-  if (needsProfile) return <div className="card h-40 animate-pulse" />;
+  if (needsProfile || needsPhone) return <div className="card h-40 animate-pulse" />;
   return <Outlet />;
 }

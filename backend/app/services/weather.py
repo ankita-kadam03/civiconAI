@@ -4,9 +4,8 @@ import logging
 from datetime import datetime, timezone
 from uuid import uuid4
 
-import httpx
-
 from app.config import get_settings
+from app.services.weather_client import fetch_forecast
 from app.db import Database
 from app.domain.geo import distance_m, encode_geohash
 from app.domain.lifecycle import canonical
@@ -53,26 +52,7 @@ def classify(payload: dict, now: datetime) -> str | None:
 
 
 def _fetch(lat: float, lng: float) -> dict:
-    settings = get_settings()
-    url = (settings.weather_base_url or "").strip()
-    if not url:
-        return {}
-    try:
-        with httpx.Client(timeout=8.0) as client:
-            res = client.get(
-                url,
-                params={
-                    "latitude": lat,
-                    "longitude": lng,
-                    "hourly": "temperature_2m,precipitation",
-                    "forecast_hours": 12,
-                },
-            )
-            res.raise_for_status()
-            return res.json()
-    except Exception as exc:  # noqa: BLE001
-        log.info("forecast skipped error=%s", type(exc).__name__)
-        return {}
+    return fetch_forecast(lat, lng)
 
 
 def _points(db: Database) -> list[tuple[float, float]]:
@@ -84,7 +64,16 @@ def _points(db: Database) -> list[tuple[float, float]]:
         if incident.get("latitude") is not None:
             found.append((incident["latitude"], incident["longitude"]))
     if not found:
-        found.append((18.5204, 73.8567))
+        settings = get_settings()
+        center = settings.map_center
+        if center:
+            found.append(center)
+        else:
+            from app.services.regions import municipality_region
+
+            muni = municipality_region(db)
+            if muni and muni.get("latitude") is not None:
+                found.append((float(muni["latitude"]), float(muni["longitude"])))
     # de-dupe roughly
     uniq = []
     for lat, lng in found:
