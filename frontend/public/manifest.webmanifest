@@ -1,0 +1,17 @@
+{
+  "name": "Civicon AI",
+  "short_name": "Civicon",
+  "description": "Your Neighbourhood. Your Voice.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#fbf7f2",
+  "theme_color": "#2a9d8f",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

@@ -1,0 +1,79 @@
+# Dependencies
+node_modules/
+.pnp
+.pnp.js
+
+# Environment and secrets
+.env
+.env.local
+.env.*.local
+.env.development
+.env.production
+*.pem
+*.p12
+*.key
+service-account*.json
+credentials.json
+gcloud-key.json
+*-credentials.json
+firebase-adminsdk*.json
+
+# Databases
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+backend/prisma/dev.db
+backend/data/
+backend/uploads/
+
+# Build
+dist/
+build/
+frontend/dist/
+backend/dist/
+coverage/
+.turbo/
+.vite/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# IDE / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+backend/.venv/
+
+# Test / temp
+.tmp/
+tmp/
+.cache/
+.npm-cache/
+.pip-cache/
+.tmp_inspect_env.py
+
+# Prisma
+backend/generated/prisma/
+
+# Misc
+.firebase/
+.firebaserc.local

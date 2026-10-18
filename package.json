@@ -1,0 +1,13 @@
+{
+  "name": "civicon-ai",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Civicon AI — Your Neighbourhood. Your Voice.",
+  "scripts": {
+    "dev": "npm run dev --prefix frontend",
+    "dev:web": "npm run dev --prefix frontend",
+    "dev:api": "python -m uvicorn app.main:app --reload --app-dir backend --port 8000",
+    "build": "npm run build --prefix frontend",
+    "lint": "npm run lint --prefix frontend"
+  }
+}

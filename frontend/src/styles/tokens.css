@@ -1,0 +1,3 @@
+/* Design tokens live in tailwind.config.js and src/index.css.
+   Keep this file as the named token entry for the requested structure. */
+@import "../index.css";

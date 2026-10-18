@@ -1,0 +1,74 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background:
+    radial-gradient(1200px 600px at -10% -20%, rgba(232, 228, 255, 0.7), transparent 55%),
+    radial-gradient(900px 500px at 110% -10%, rgba(215, 238, 255, 0.8), transparent 50%),
+    radial-gradient(700px 400px at 80% 110%, rgba(212, 243, 234, 0.65), transparent 45%),
+    #fbf7f2;
+  color: #1b2545;
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+.dark body,
+.dark {
+  color-scheme: dark;
+}
+
+.dark body {
+  background:
+    radial-gradient(1000px 500px at 0% 0%, rgba(90, 80, 160, 0.25), transparent 50%),
+    #121826;
+  color: #eef2ff;
+}
+
+.font-display {
+  font-family: "Plus Jakarta Sans", ui-sans-serif, system-ui, sans-serif;
+}
+
+@layer components {
+  .card {
+    @apply rounded-3xl border border-white/70 bg-white/80 shadow-card backdrop-blur-sm dark:border-white/10 dark:bg-slate-900/80;
+  }
+  .chip {
+    @apply inline-flex items-center gap-1 rounded-full px-3 py-1 text-xs font-semibold;
+  }
+}
+
+a:focus-visible,
+button:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 2px solid #2a9d8f;
+  outline-offset: 2px;
+}
+
+.leaflet-container {
+  font-family: inherit;
+  border-radius: 1.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "state": "Tamil Nadu",
+  "districts": [
+    {
+      "id": "chengalpattu",
+      "name": "Chengalpattu",
+      "bounds": {
+        "min_lat": 12.45,
+        "max_lat": 13.15,
+        "min_lng": 79.95,
+        "max_lng": 80.35
+      },
+      "municipalities": [
+        {
+          "id": "tambaram",
+          "name": "Tambaram City Municipal Corporation",
+          "bounds": {
+            "min_lat": 12.90,
+            "max_lat": 12.99,
+            "min_lng": 80.08,
+            "max_lng": 80.17
+          },
+          "wards": [
+            {
+              "id": "old-pallavaram-area-a",
+              "name": "Old Pallavaram - Area A",
+              "bounds": {
+                "min_lat": 12.956,
+                "max_lat": 12.963,
+                "min_lng": 80.143,
+                "max_lng": 80.152
+              }
+            },
+            {
+              "id": "old-pallavaram-area-b",
+              "name": "Old Pallavaram - Area B",
+              "bounds": {
+                "min_lat": 12.951,
+                "max_lat": 12.958,
+                "min_lng": 80.143,
+                "max_lng": 80.153
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
