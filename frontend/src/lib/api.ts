@@ -132,7 +132,15 @@ export const endpoints = {
   readNotification: (id: string) => api.post(`/api/notifications/${id}/read`),
   readAll: () => api.post("/api/notifications/read-all"),
   classify: (body: unknown) => api.post("/api/ai/classify", body),
-  chat: (body: unknown) => api.post<{ reply: string; ai_generated: boolean; disclaimer: string }>("/api/ai/chat", body),
+  chat: (body: unknown) =>
+    api.post<{
+      reply: string;
+      ai_generated: boolean;
+      disclaimer: string;
+      public_reports: Array<{ id: string; reference: string; title: string; summary: string; status: string; locality: string }>;
+      my_reports: Array<{ id: string; reference: string; title: string; summary: string; status: string; locality: string }>;
+      weather: { available: boolean; summary?: string; temperature_c?: number | null; message?: string } | null;
+    }>("/api/ai/chat", body),
   analytics: () => api.get<Analytics>("/api/admin/analytics"),
   users: (q = "") => api.get<User[]>(`/api/admin/users${q}`),
   patchUser: (id: string, body: unknown) => api.patch<User>(`/api/admin/users/${id}`, body),

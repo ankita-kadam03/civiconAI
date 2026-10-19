@@ -2,168 +2,143 @@
 
 **Your Neighbourhood. Your Voice.**
 
-Civic issue reporting and escalation: citizens file neighbourhood problems, officers track resolution, administrators monitor service levels.
+Civicon is a civic issue reporting and escalation app. Citizens submit and track issues; officers and administrators manage reports and service levels.
 
 ## Stack
 
 | Layer | Technology |
 | --- | --- |
 | Frontend | React, TypeScript, Vite, Tailwind, React Router |
-| Backend | Python 3.11+ FastAPI (`/docs` Swagger UI) |
-| Database | Cloud Firestore (`ALLOW_MEMORY_DB=true` only for local/tests) |
-| Auth | JWT access + refresh, bcrypt, roles: `CITIZEN`, `OFFICER`, `ADMIN`, `ADMIN_L2`, `ADMIN_L3` |
-| Maps & weather | Google Maps Platform (browser key + server Weather API key) |
-| AI | Gemini / Vertex AI (classification) |
-## Important Credentials
+| API | Python 3.11+, FastAPI |
+| Primary database | Firestore in production; optional in-memory database for local development |
+| Authentication | Civicon email/password accounts with server-issued JWTs and role-based access |
+| Maps, weather, AI | Google Maps Platform, Weather API, Gemini API or Vertex AI |
+| Optional cloud integrations | Cloud Storage, BigQuery, Pub/Sub |
 
-# CiviCon Demo Accounts
+## Run locally
 
-## Accounts (Email → Password → Role)
+### 1. Prepare backend settings
 
-| Email | Password | Role | Level |
-|---|---|---|---|
-| l1.wardnorth@example.com | CiviconDemo1 | OFFICER (ward north) | L1 |
-| l1.wardsouth@example.com | CiviconDemo1 | OFFICER (ward south) | L1 |
-| l2.regional@example.com | CiviconDemo1 | ADMIN_L2 (regional) | L2 |
-| l3.municipal@example.com | CiviconDemo1 | ADMIN_L3 (municipal) | L3 |
-| citizen.one@example.com | CiviconDemo1 | CITIZEN | — |
-| citizen.two@example.com | CiviconDemo1 | CITIZEN | — |
+Create `backend/.env` with at least:
 
-## Role Hierarchy
-
-- **L1:** Ward Officer
-- **L2:** Regional Admin
-- **L3:** Municipal Admin
-- **CITIZEN:** Citizen reporting civic incidents
-
-After giving a locality, use **Inner Municipal Service Area** as **Pallavaram, Tamilnadu, India** to see relevant mappings (Demo Limitation)
-
-## Local setup
-
-### Environment
-
-Do not commit `.env` files. Copy from `.env.example`:
-
-- `frontend/.env.local` — `VITE_*` only (public browser keys; restrict in GCP/Firebase)
-- `backend/.env` — secrets and server config
-
-### Backend
-
-```bash
-cd backend
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-pip install -r requirements.txt
-uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```dotenv
+APP_ENV=development
+ALLOW_MEMORY_DB=true
+FRESH_START=false
 ```
 
-If port 8000 is busy, pick another port and set `VITE_API_BASE_URL` to match.
+Memory mode is for local development only: data is lost when the API process restarts. For a persistent local database, configure Firestore as described in [Google Cloud setup](./docs/google-cloud.md).
 
-- API docs: http://127.0.0.1:8000/docs  
-- Health: `GET /health`  
+### 2. Start the API
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
+```
+
+- API docs: <http://127.0.0.1:8000/docs>
+- Health: `GET /health`
 - Readiness: `GET /ready`
 
-Firestore locally: `gcloud auth application-default login` and `FIREBASE_PROJECT_ID` in `backend/.env`.
+### 3. Start the frontend
 
-### Frontend
+Create `frontend/.env.local`:
 
-```bash
+```dotenv
+VITE_API_BASE_URL=http://127.0.0.1:8000
+# Optional for map and location-picker screens:
+VITE_GOOGLE_MAPS_API_KEY=
+```
+
+Then run:
+
+```powershell
 cd frontend
-npm install --legacy-peer-deps
+npm ci --legacy-peer-deps
 npm run dev
 ```
 
-App: http://localhost:5173
+Open <http://localhost:5173>. A Google Maps browser key is needed for map features, but not to start the API. To use Gemini, weather, or other Google Cloud-backed features locally, follow the credential setup below.
 
-### One-time empty database
+## Google resources and credentials
 
-Set `FRESH_START=true` once, restart API, then set `FRESH_START=false`.
+**Configure settings and credentials before starting or deploying the API.** Civicon reads application settings from `backend/.env`; Google Cloud client libraries use Application Default Credentials (ADC). Locally, ADC can be set up with `gcloud auth application-default login`. On Cloud Run, attach a service account with least-privilege IAM roles and use Secret Manager for secrets. Do not put server secrets in frontend variables or commit `.env` files.
 
-Set `DEFAULT_MAP_LAT` / `DEFAULT_MAP_LNG` (or Vite map center) and `VITE_GOOGLE_MAPS_API_KEY` for maps.
+| Google resource | Configure | What Civicon uses it for | If it is not configured |
+| --- | --- | --- | --- |
+| Firestore | `FIREBASE_PROJECT_ID` (falls back to `GOOGLE_CLOUD_PROJECT`); local ADC or Cloud Run service account | Persistent production database for users, issues, and application data | If neither project ID is set, the API requires `ALLOW_MEMORY_DB=true`; memory data is temporary and unsuitable for production |
+| Gemini API or Vertex AI | Backend `GEMINI_API_KEY`, **or** `GOOGLE_CLOUD_PROJECT` plus ADC/Vertex permissions; optional `GEMINI_MODEL` | AI issue classification and CiviChat responses | CiviChat uses its built-in fallback; with the default `REQUIRE_GEMINI=true`, AI classification is unavailable when Gemini cannot be reached |
+| Google Maps Platform | `VITE_GOOGLE_MAPS_API_KEY` in `frontend/.env.local` or `.env.production`; enable Maps JavaScript API and Places if used | Browser maps and location selection/search | Map features do not load. This key is public in the built frontend: restrict it by website referrer and API |
+| Google Weather API | Backend `GOOGLE_SERVER_API_KEY`; enable Weather API | Current conditions and weather alerts, including location-based CiviChat weather | Weather information is unavailable. Keep this server key separate from the browser Maps key |
+| Cloud Storage | Backend `GCS_BUCKET`, project and ADC/IAM | Stores uploaded report attachments privately | The API falls back to local disk, which is not durable storage on Cloud Run |
+| BigQuery | Backend `GOOGLE_CLOUD_PROJECT` and `BIGQUERY_DATASET`; dataset and IAM | Analytics copy of created and updated issues | Analytics sync is unavailable; by default readiness checks expect BigQuery unless `REQUIRE_BIGQUERY=false` |
+| Pub/Sub | Backend `GOOGLE_CLOUD_PROJECT` and `PUBSUB_TOPIC_EVENTS` (default `incident-events`); publisher IAM | Best-effort issue-created and status-changed events for downstream consumers | Event publishing is disabled or fails without blocking the core reporting flow |
+| Cloud Run | Deploy the API image and attach a runtime service account | Runs the FastAPI backend and accesses Google Cloud resources through ADC | Production API is not hosted |
+| Firebase Hosting | Deploys the built frontend; `VITE_API_BASE_URL` points to Cloud Run | Serves the static web application over HTTPS | Frontend is not hosted there |
 
-## Configuration reference
+Google Cloud APIs, billing where applicable, credentials, and IAM permissions must be enabled/configured in the selected project for the corresponding integration to work.
 
-**Frontend**
+### Production setup order
 
-| Name | Purpose |
-| --- | --- |
-| `VITE_API_BASE_URL` | FastAPI origin (default `http://127.0.0.1:8000`) |
-| `VITE_GOOGLE_MAPS_API_KEY` | Maps JavaScript + Places |
-| `VITE_FIREBASE_*` | Optional FCM web push |
-| `VITE_DEFAULT_MAP_LAT` / `LNG` | Default map center |
+1. Select the Google Cloud/Firebase project; enable billing and only the APIs for services you plan to use.
+2. Create the Firestore database, Storage bucket, BigQuery dataset, and Pub/Sub topic you intend to use. Create separate browser Maps and backend Weather keys.
+3. Grant the Cloud Run service account access to those resources. Add backend secrets such as `JWT_SECRET`, `GEMINI_API_KEY` (if using an API key), and `GOOGLE_SERVER_API_KEY` to Secret Manager and make them available to Cloud Run.
+4. Deploy the backend with its runtime settings and verify `/ready` and **Admin → Health → Integrations**.
+5. Set `VITE_API_BASE_URL` and the restricted browser Maps key in `frontend/.env.production`, build the frontend, and deploy Hosting.
 
-`NEXT_PUBLIC_*` aliases are supported via Vite `envPrefix`.
+This order ensures cloud resources and credentials exist before the app tries to use them. It also ensures the frontend build points to the deployed API. For commands, IAM roles, and deployment details, see [Google Cloud deployment](./docs/google-cloud.md); for Hosting, browser-key restrictions, Weather API setup, and CORS, see [Firebase Hosting](./docs/firebase-hosting.md).
 
-**Backend**
+### Which environment gets which values?
 
-| Name | Purpose |
-| --- | --- |
-| `FIREBASE_PROJECT_ID` | Firestore project |
-| `ALLOW_MEMORY_DB` | `true` = in-memory (local only); production `false` |
-| `JWT_SECRET` | Token signing; empty OK for local dev; **required in production** (Secret Manager) |
-| `INTERNAL_TASK_SECRET` | Scheduler / internal HTTP auth |
-| `GOOGLE_CLOUD_PROJECT` | GCP project for Vertex, GCS, Pub/Sub |
-| `GOOGLE_SERVER_API_KEY` | Google Weather API (server key) |
-| `GEMINI_API_KEY` / Vertex ADC | AI classification |
-| `GCS_BUCKET` | Private photos; empty → local `backend/uploads` |
-| `BIGQUERY_DATASET` | Analytics warehouse |
-| `CORS_ORIGINS` | Allowed frontend origins (required in production) |
-| `FRESH_START` | `true` wipes data on startup — never in production |
+- **Frontend build:** `VITE_API_BASE_URL`, `VITE_GOOGLE_MAPS_API_KEY`, and optional `VITE_DEFAULT_MAP_LAT` / `VITE_DEFAULT_MAP_LNG`. `VITE_*` values are compiled into public browser assets; never put secrets there.
+- **Backend runtime:** Firestore, Gemini/Vertex, Weather API, Storage, BigQuery, and Pub/Sub settings. Keep API keys and `JWT_SECRET` server-side; in production, store secrets in Secret Manager and grant the Cloud Run service account access.
+- **Local Google Cloud access:** run `gcloud auth application-default login` and set `GOOGLE_CLOUD_PROJECT` in `backend/.env`. Set `FIREBASE_PROJECT_ID` to a different Firestore project if needed; otherwise `GOOGLE_CLOUD_PROJECT` is also used for Firestore. Because a configured project selects Firestore, leave both project IDs unset to use the local in-memory database. Do not download or commit service-account key files.
 
-## Integrations
+The app uses Civicon's own email/password and JWT authentication; Firebase Authentication is not required. Firebase web configuration variables in the environment template are not needed for the core app and do not, by themselves, enable browser push notifications.
 
-| Service | Role |
-| --- | --- |
-| Firestore | System of record |
-| Cloud Storage | Report attachments |
-| Gemini / Vertex | AI classify + CiviChat |
-| BigQuery | Analytics sync |
-| Pub/Sub | Incident events (best-effort) |
-| Google Maps | Map UI and location picker |
-| Google Weather | Current conditions / alerts bar |
-| Cloud Run | Production API container (`backend/Dockerfile`) |
+## Demo accounts
 
-Verify integration status: **Admin → Health** (when signed in as admin).
+These shared accounts are intentionally available on the live demo. Do not use them for private or sensitive data.
 
-## Tests
+| Email | Password | Role |
+| --- | --- | --- |
+| `l1.wardnorth@example.com` | `CiviconDemo1` | Ward North Officer (L1) |
+| `l1.wardsouth@example.com` | `CiviconDemo1` | Ward South Officer (L1) |
+| `l2.regional@example.com` | `CiviconDemo1` | Regional Admin (L2) |
+| `l3.municipal@example.com` | `CiviconDemo1` | Municipal Admin (L3) |
+| `citizen.one@example.com` | `CiviconDemo1` | Citizen |
+| `citizen.two@example.com` | `CiviconDemo1` | Citizen |
 
-```bash
-backend\.venv\Scripts\python -m pytest backend/tests -q
+Bootstrap accounts are created only when `SEED_BOOTSTRAP_USERS=yes` and `SEED_BOOTSTRAP_PASSWORD` is explicitly set. Optional email settings are available in [backend/app/config.py](./backend/app/config.py). This setup is for the public demo only; never reuse the shared demo password for real accounts or other environments.
 
+## Validation
+
+There is no configured `npm test` script or checked-in `backend/tests` suite at present. Available frontend checks:
+
+```powershell
 cd frontend
-npm run test
+npm run lint
 npm run typecheck
 npm run build
 ```
 
-Escalation job (local):
+Backend Python syntax and lint checks (from the repository root, after installing `backend/requirements.txt`):
 
-```bash
-cd backend
-python -m app.jobs.escalate
+```powershell
+.\backend\.venv\Scripts\python.exe -m compileall backend\app
+.\backend\.venv\Scripts\ruff.exe check backend\app
 ```
 
-Production equivalent: Cloud Scheduler → `POST /internal/tasks/escalate` with `X-Civicon-Task: <INTERNAL_TASK_SECRET>`.
+## Security and production
 
-## Security
-
-See `docs/security.md`. Restrict browser API keys by referrer. Rotate any credential exposed outside env files.
-
-## Production deployment
-
-See **`docs/google-cloud.md`** (Cloud Run API, Secret Manager, IAM).
-
-**Frontend (Firebase Hosting):**
-
-```bash
-# frontend/.env.production — VITE_API_BASE_URL = your Cloud Run URL (see .env.production.example)
-npm run build --prefix frontend
-firebase deploy --only hosting
-```
-
-Or from repo root: `npm run deploy:web`
-
-Live site: https://civiconai.web.app — API CORS must include this origin on Cloud Run.
-
-Possible GCP charges: Cloud Run, Firestore, Storage, Vertex/Gemini, BigQuery, Pub/Sub, Maps Platform, Weather API.
+- Never commit `.env` files, API secrets, service-account keys, or production passwords.
+- Restrict browser Maps keys by referrer and API; keep server keys separate.
+- Use a strong `JWT_SECRET` in production. See [security guidance](./docs/security.md).
+- Never set `FRESH_START=true` in production; it resets application data.
+- Configure `CORS_ORIGINS` on the API with the exact deployed frontend origins.
+- Backend deployment: [Google Cloud deployment](./docs/google-cloud.md).
+- Frontend deployment: `npm run deploy:web` after configuring `frontend/.env.production`; see [Firebase Hosting](./docs/firebase-hosting.md).
+- Production URL: <https://civiconai.web.app>. The API's CORS configuration must include this origin.
