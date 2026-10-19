@@ -127,7 +127,7 @@ export function HomePage() {
   const faqs = [
     ["Do I need an account?", "Yes, so you can track reports that belong to you and receive updates."],
     ["Does Civicon contact the municipality for me?", "No. Civicon records and routes reports. It never claims an agency was contacted automatically."],
-    ["Why did an AI suggestion appear?", "Classification is a recommendation. Officers and you can ignore it."],
+    ["How does AI support civic reporting?", "Gemini analyzes each report and produces a concise issue summary, category, severity, and responsible department to help teams triage and route reports."],
     ["Are photos public?", "Report photos can appear on public pages. Resolution evidence stays private."],
   ];
 
@@ -142,7 +142,7 @@ export function HomePage() {
             Your Voice.
           </h1>
           <p className="mt-4 max-w-xl text-lg text-navy/70 dark:text-slate-300">
-            Report potholes, leaks, and dark streets. Track updates on Google Maps — AI suggests categories; people stay in charge.
+            Report potholes, leaks, and dark streets. AI-powered classification, neighbourhood insights, and clear progress tracking help move every report forward.
           </p>
           <div className="mt-6 flex flex-wrap gap-3">
             <Link to="/signup">
@@ -180,12 +180,15 @@ export function HomePage() {
       </LandingSection>
 
       <LandingSection id="about" title="About Civicon AI">
-        <div className="max-w-3xl space-y-4 text-navy/70 dark:text-slate-300">
+        <div className="w-full space-y-4 text-left leading-relaxed text-navy/70 dark:text-slate-300">
           <p>
-            Civicon AI is a civic issue reporting and escalation platform. Citizens file neighbourhood problems, officers update progress, and administrators keep service levels honest.
+            Civicon AI brings residents, field officers, and municipal teams together around the issues that shape everyday life. Residents can submit a report with its location and supporting details, follow its timeline, explore public incidents, and help verify when a fix holds. Officers can review, assign, and update cases; administrators oversee service levels and escalations.
           </p>
           <p>
-            AI can suggest a category, severity and department, but it never rejects or merges a report on its own. People stay in charge.
+            Gemini analyzes each report’s title and description to produce a concise issue summary, category, severity, and responsible department—giving teams richer context for triage and routing. Civicon also brings together community activity, issue priority, and service-level timelines to help surface what needs attention.
+          </p>
+          <p>
+            Stay informed with real-time in-app notifications for report submissions, assignments, requests for more information, status changes, resolutions, and escalations. While signed in, the notification indicator refreshes automatically, so important progress is easy to spot. Install Civicon as a PWA on your phone to access the same in-app notifications on mobile.
           </p>
         </div>
       </LandingSection>

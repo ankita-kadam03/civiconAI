@@ -3,7 +3,7 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.db import Database
-from app.deps import current_user, db_dep
+from app.deps import current_user, db_dep, optional_user
 from app.schemas import ChatIn, ClassifyIn
 from app.services.ai import ai_service
 
@@ -26,12 +26,14 @@ def classify(body: ClassifyIn, user: dict = Depends(current_user)):
 
 
 @router.post("/chat")
-def chat(body: ChatIn, user: dict = Depends(current_user), db: Database = Depends(db_dep)):
-    from app.services.civichat import civichat_reply
+def chat(body: ChatIn, user: dict | None = Depends(optional_user), db: Database = Depends(db_dep)):
+    from app.services.civichat import civichat_response
 
-    reply = civichat_reply(body.message, db, latitude=body.latitude, longitude=body.longitude)
-    return {
-        "reply": reply,
-        "ai_generated": False,
-        "disclaimer": "CiviChat helps with navigation and nearby public reports only.",
-    }
+    return civichat_response(
+        body.message,
+        db,
+        user=user,
+        history=body.history,
+        latitude=body.latitude,
+        longitude=body.longitude,
+    )
