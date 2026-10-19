@@ -1,4 +1,4 @@
-import { MessageCircle, Send, Sparkles } from "lucide-react";
+import { MessageCircle, Send, Sparkles, X } from "lucide-react";
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { endpoints } from "../lib/api";
@@ -95,9 +95,20 @@ export function CiviChat() {
     <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-3 z-40 sm:bottom-5 sm:right-5">
       {open ? (
         <Card className="mb-3 w-[min(92vw,380px)] border-teal/20 shadow-card dark:border-teal/30">
-          <div className="mb-3 flex items-center gap-2 font-bold text-navy dark:text-white">
-            <Sparkles size={16} className="text-teal" aria-hidden />
-            CiviChat
+          <div className="mb-3 flex items-center justify-between">
+            <div className="flex items-center gap-2 font-bold text-navy dark:text-white">
+              <Sparkles size={16} className="text-teal" aria-hidden />
+              CiviChat
+            </div>
+            <Button
+              type="button"
+              variant="ghost"
+              className="px-2 py-2"
+              onClick={() => setOpen(false)}
+              aria-label="Close CiviChat"
+            >
+              <X size={18} aria-hidden />
+            </Button>
           </div>
           <div className="mb-3 max-h-64 space-y-2 overflow-y-auto text-sm">
             {history.map((item, index) => (
