@@ -100,6 +100,9 @@ export function SignupPage() {
         <Field label="Email" error={form.formState.errors.email?.message}>
           <Input type="email" {...form.register("email")} />
         </Field>
+        <Field label="Mobile number" error={form.formState.errors.phone?.message}>
+          <Input type="tel" autoComplete="tel" {...form.register("phone")} />
+        </Field>
         <Field label="Locality">
           <select
             className="w-full rounded-2xl border border-navy/10 bg-white px-4 py-2.5 text-sm text-navy dark:border-white/10 dark:bg-slate-900 dark:text-white"
