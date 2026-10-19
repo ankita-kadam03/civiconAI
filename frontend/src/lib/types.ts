@@ -57,16 +57,16 @@ export interface Complaint {
   title: string;
   description?: string;
   summary?: string;
-  category_id: string;
+  category_id?: string;
   department_id?: string | null;
-  status: Status;
-  severity: Severity;
+  status?: Status;
+  severity?: Severity;
   locality: string;
   address?: string | null;
   latitude?: number | null;
   longitude?: number | null;
   occurred_at?: string | null;
-  is_public: boolean;
+  municipality_name?: string | null;
   created_at?: string;
   updated_at?: string;
   resolved_at?: string | null;
@@ -80,8 +80,11 @@ export interface Complaint {
   similar?: Array<{ id: string; reference?: string; title?: string; score: number }>;
   ai?: Record<string, unknown>;
   ai_rationale?: string;
+  ai_summary?: string;
+  attachment_inference?: string | null;
   ai_severity?: string;
   ai_category_slug?: string;
+  ai_department_code?: string;
   history?: Array<{ id: string; from_status?: string; to_status?: string; note?: string; created_at?: string }>;
   comments?: Array<{
     id: string;

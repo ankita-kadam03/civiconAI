@@ -52,21 +52,25 @@ export function IncidentCard({ incident, to }: { incident: Complaint; to: string
     <Link to={to} className="block">
       <Card className="h-full transition hover:-translate-y-0.5 hover:shadow-card">
         <div className="mb-3 flex flex-wrap items-center gap-2">
-          <StatusBadge status={incident.status} />
-          <SeverityBadge severity={incident.severity} />
+          {incident.status ? <StatusBadge status={incident.status} /> : null}
+          {incident.severity ? <SeverityBadge severity={incident.severity} /> : null}
         </div>
         <div className="flex items-start gap-3">
           <CategoryIconBadge slugOrIcon={iconKey} />
           <div className="min-w-0 flex-1">
         <p className="text-xs font-semibold uppercase tracking-wide text-teal">{incident.reference}</p>
         <h3 className="mt-1 text-lg font-bold text-navy dark:text-white">{incident.title}</h3>
-        <p className="mt-2 line-clamp-2 text-sm text-navy/70 dark:text-slate-300">{incident.summary || incident.description}</p>
+        {incident.summary || incident.description ? (
+          <p className="mt-2 line-clamp-2 text-sm text-navy/70 dark:text-slate-300">{incident.summary || incident.description}</p>
+        ) : null}
         <p className="mt-3 flex items-start gap-1.5 text-sm font-medium text-navy/80 dark:text-slate-200">
           <MapPin size={16} className="mt-0.5 shrink-0 text-teal" aria-hidden />
           <span>{locationLine(incident)}</span>
         </p>
         <p className="mt-2 text-xs text-navy/50">
-          {incident.department?.name || "Civic desk"} · {formatDate(incident.created_at)}
+          {incident.department?.name ? `${incident.department.name} · ` : ""}
+          {incident.created_at ? `${formatDate(incident.created_at)} · ` : ""}
+          Promotes: {incident.counters?.promotes ?? 0}
         </p>
           </div>
         </div>

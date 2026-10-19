@@ -32,51 +32,68 @@ def dt(value: Any) -> str | None:
     return str(value)
 
 
-def complaint_public(doc: dict, *, include_internal: bool = False, extras: dict | None = None) -> dict:
+def complaint_public(
+    doc: dict,
+    *,
+    signed_in: bool = False,
+    include_internal: bool = False,
+    extras: dict | None = None,
+) -> dict:
     body = {
         "id": doc["_id"],
         "reference": doc.get("reference"),
         "title": doc.get("title"),
-        "description": doc.get("description") if include_internal else _public_description(doc),
-        "summary": doc.get("summary"),
-        "category_id": doc.get("category_id"),
-        "department_id": doc.get("department_id"),
-        "status": doc.get("status"),
-        "severity": doc.get("severity"),
         "locality": doc.get("locality"),
         "latitude": doc.get("latitude"),
         "longitude": doc.get("longitude"),
-        "occurred_at": dt(doc.get("occurred_at")),
-        "is_public": doc.get("is_public", True),
-        "created_at": dt(doc.get("created_at")),
-        "updated_at": dt(doc.get("updated_at")),
-        "resolved_at": dt(doc.get("resolved_at")),
-        "last_progress_at": dt(doc.get("last_progress_at")),
-        "source": doc.get("source") or "user",
-        "escalation_level": doc.get("escalation_level") or 1,
-        "escalated_by_threshold": bool(doc.get("escalated_by_threshold")),
-        "human_review_required": bool(doc.get("human_review_required")),
-        "priority": doc.get("priority"),
-        "counters": doc.get("counters") or {},
-        "claimed_by": doc.get("claimed_by"),
-        "sla": {
-            "ack_due": dt((doc.get("sla") or {}).get("ack_due")) if isinstance(doc.get("sla"), dict) else None,
-            "resolve_due": dt((doc.get("sla") or {}).get("resolve_due")) if isinstance(doc.get("sla"), dict) else None,
-        },
-        "lifecycle": (doc.get("status") or "").lower() if str(doc.get("status", "")).islower() else None,
+        "counters": {"promotes": (doc.get("counters") or {}).get("promotes", 0)},
     }
+    if signed_in:
+        body.update(
+            {
+                "summary": _public_description(doc),
+                "description": _public_description(doc),
+                "category_id": doc.get("category_id"),
+                "department_id": doc.get("department_id"),
+                "status": doc.get("status"),
+                "created_at": dt(doc.get("created_at")),
+                "updated_at": dt(doc.get("updated_at")),
+                "resolved_at": dt(doc.get("resolved_at")),
+                "last_progress_at": dt(doc.get("last_progress_at")),
+                "priority": doc.get("priority"),
+                "counters": doc.get("counters") or {},
+            }
+        )
     if include_internal:
         body.update(
             {
+                "description": doc.get("description"),
                 "address": doc.get("address"),
                 "reporter_id": doc.get("reporter_id"),
                 "assigned_officer_id": doc.get("assigned_officer_id"),
                 "duplicate_of_id": doc.get("duplicate_of_id"),
+                "occurred_at": dt(doc.get("occurred_at")),
+                "severity": doc.get("severity"),
+                "ai_summary": doc.get("ai_summary"),
+                "attachment_inference": doc.get("attachment_inference"),
                 "ai_category_slug": doc.get("ai_category_slug"),
                 "ai_severity": doc.get("ai_severity"),
                 "ai_department_code": doc.get("ai_department_code"),
                 "ai_rationale": doc.get("ai_rationale"),
                 "ai_generated": True if doc.get("ai_rationale") else False,
+                "source": doc.get("source") or "user",
+                "escalation_level": doc.get("escalation_level") or 1,
+                "escalated_by_threshold": bool(doc.get("escalated_by_threshold")),
+                "human_review_required": bool(doc.get("human_review_required")),
+                "claimed_by": doc.get("claimed_by"),
+                "sla": {
+                    "ack_due": dt((doc.get("sla") or {}).get("ack_due"))
+                    if isinstance(doc.get("sla"), dict)
+                    else None,
+                    "resolve_due": dt((doc.get("sla") or {}).get("resolve_due"))
+                    if isinstance(doc.get("sla"), dict)
+                    else None,
+                },
             }
         )
     if extras:
@@ -85,7 +102,7 @@ def complaint_public(doc: dict, *, include_internal: bool = False, extras: dict 
 
 
 def _public_description(doc: dict) -> str:
-    text = doc.get("summary") or doc.get("description") or ""
+    text = doc.get("description") or doc.get("title") or ""
     return text[:280]
 
 

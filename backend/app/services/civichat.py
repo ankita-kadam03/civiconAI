@@ -29,6 +29,10 @@ ROUTE_KNOWLEDGE_BASE = """Civicon route and feature guide:
 - Regional administrator board: /l2
 - Municipal administrator board and tools: /l3 and /admin
 Only recommend routes listed here. Citizen-only routes require sign-in.
+Report visibility: every issue and its location are public. Signed-out visitors see the issue, location, and promote
+count; signed-in users can also see status, brief summary, assigned officer name, municipality, non-private images,
+and conversations. Only the reporter and authorized department officers/administrators can see AI summaries and
+classifications, contact phone numbers, and images marked private. Signed-out visitors cannot see conversations or images.
 """
 
 
@@ -75,7 +79,7 @@ def civichat_response(
         )
     )
 
-    public_reports = _nearby_public_reports(db, latitude, longitude) if wants_local else []
+    public_reports = _nearby_public_reports(db, latitude, longitude, signed_in=bool(user)) if wants_local else []
     weather = _current_weather(latitude, longitude) if wants_local else None
     my_reports = _my_reports(db, user) if wants_personal and user else []
     context = _build_context(
@@ -113,8 +117,14 @@ def civichat_reply(
     return civichat_response(message, db, latitude=latitude, longitude=longitude)["reply"]
 
 
-def _nearby_public_reports(db: Database, lat: float | None, lng: float | None) -> list[dict[str, Any]]:
-    docs = list(db.col("complaints").find({"is_public": True}).sort("created_at", -1))
+def _nearby_public_reports(
+    db: Database,
+    lat: float | None,
+    lng: float | None,
+    *,
+    signed_in: bool = False,
+) -> list[dict[str, Any]]:
+    docs = list(db.col("complaints").find({}).sort("created_at", -1))
     if lat is not None and lng is not None:
         nearby = []
         for doc in docs:
@@ -126,7 +136,7 @@ def _nearby_public_reports(db: Database, lat: float | None, lng: float | None) -
             except (TypeError, ValueError):
                 log.warning("civichat_invalid_report_coordinates incident_id=%s", doc.get("_id"))
         docs = nearby
-    return [_report_summary(doc) for doc in docs[:PUBLIC_REPORT_LIMIT]]
+    return [_report_summary(doc, signed_in=signed_in) for doc in docs[:PUBLIC_REPORT_LIMIT]]
 
 
 def _my_reports(db: Database, user: dict) -> list[dict[str, Any]]:
@@ -135,18 +145,25 @@ def _my_reports(db: Database, user: dict) -> list[dict[str, Any]]:
         .find({"reporter_id": user["_id"]})
         .sort("created_at", -1)
     )
-    return [_report_summary(doc) for doc in docs[:PERSONAL_REPORT_LIMIT]]
+    return [_report_summary(doc, signed_in=True) for doc in docs[:PERSONAL_REPORT_LIMIT]]
 
 
-def _report_summary(doc: dict) -> dict[str, Any]:
-    return {
+def _report_summary(doc: dict, *, signed_in: bool = False) -> dict[str, Any]:
+    result = {
         "id": str(doc.get("_id") or ""),
         "reference": doc.get("reference") or "",
         "title": (doc.get("title") or "Untitled issue")[:120],
-        "summary": (doc.get("summary") or doc.get("title") or "No summary available.")[:300],
-        "status": canonical(str(doc.get("status") or "reported")).replace("_", " ").title(),
         "locality": (doc.get("locality") or "Area not specified")[:120],
+        "promotes": int((doc.get("counters") or {}).get("promotes", 0)),
     }
+    if signed_in:
+        result.update(
+            {
+                "summary": (doc.get("summary") or doc.get("title") or "No summary available.")[:300],
+                "status": canonical(str(doc.get("status") or "reported")).replace("_", " ").title(),
+            }
+        )
+    return result
 
 
 def _current_weather(lat: float | None, lng: float | None) -> dict[str, Any]:
@@ -213,7 +230,9 @@ def _build_context(
     sections.append(
         "Answer warmly and concisely. Use only the route guide and facts supplied here. "
         "Never invent issue details, status, weather, links, or account data. "
-        "Mention no more than two public reports; the interface displays those report cards separately. "
+        "Mention no more than two recent reports; the interface displays those report cards separately. "
+        "For signed-out visitors, only the supplied issue title and locality are available; do not infer or reveal "
+        "status, summaries, attachments, or other report details. "
         "If the visitor is signed out, explain that signing in is needed to retrieve their personal reports."
     )
     return "\n\n".join(sections)
@@ -249,7 +268,7 @@ def _fallback_reply(
         else:
             weather_text = ""
         if public_reports:
-            return f"I found the latest public issues shown below.{weather_text}"
+            return f"I found the latest issues shown below.{weather_text}"
         if lat is None or lng is None:
             return f"I need location access to find nearby issues.{weather_text}"
         return f"I couldn’t find a public issue within {NEARBY_RADIUS_M // 1000} km.{weather_text}"
@@ -263,6 +282,13 @@ def _fallback_reply(
         return "Open My account at /app/profile to update your profile."
     if "notification" in text:
         return "Open Notifications at /app/notifications to see updates."
+    if any(term in text for term in ("privacy", "private photo", "private attachment", "who can see", "visible")):
+        return (
+            "Every issue and its location are public. Signed-out visitors see only the issue, location, and promote count. "
+            "After sign-in, users can also see status, brief summary, assigned officer name, municipality, non-private "
+            "photos, and conversations. The reporter and authorized department officials can see AI results, contact "
+            "numbers, and photos marked private."
+        )
     if "officer" in text:
         return "Officers can open their assigned-issues board at /officer after signing in with an officer account."
     if "admin" in text:

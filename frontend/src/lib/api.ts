@@ -74,10 +74,13 @@ export const api = {
   patch: <T>(path: string, body?: unknown) => request<T>(path, { method: "PATCH", body: JSON.stringify(body) }),
   put: <T>(path: string, body?: unknown) => request<T>(path, { method: "PUT", body: JSON.stringify(body) }),
   delete: <T>(path: string) => request<T>(path, { method: "DELETE" }),
-  upload: <T>(path: string, file: File, kind = "report") => {
+  upload: <T>(path: string, file: File, kind = "report", keepPrivate = false) => {
     const data = new FormData();
     data.append("file", file);
-    return request<T>(`${path}?kind=${encodeURIComponent(kind)}`, { method: "POST", body: data });
+    return request<T>(
+      `${path}?kind=${encodeURIComponent(kind)}&keep_private=${keepPrivate ? "true" : "false"}`,
+      { method: "POST", body: data },
+    );
   },
 };
 
@@ -123,22 +126,44 @@ export const endpoints = {
   complaint: (id: string) => api.get<Complaint>(`/api/complaints/${id}`),
   deleteComplaint: (id: string) => api.delete(`/api/complaints/${id}`),
   createComplaint: (body: unknown) => api.post<Complaint>("/api/complaints", body),
+  createComplaintWithAttachments: (
+    body: unknown,
+    files: File[],
+    keepPrivate: boolean,
+    classificationToken?: string,
+  ) => {
+    const data = new FormData();
+    data.append("report", JSON.stringify(body));
+    data.append("keep_attachments_private", String(keepPrivate));
+    if (classificationToken) data.append("classification_token", classificationToken);
+    for (const file of files) data.append("files", file, file.name);
+    return request<Complaint>("/api/complaints", { method: "POST", body: data });
+  },
   status: (id: string, body: unknown) => api.patch<Complaint>(`/api/complaints/${id}/status`, body),
   comment: (id: string, body: unknown) => api.post(`/api/complaints/${id}/comments`, body),
   assign: (id: string, body: unknown) => api.post(`/api/complaints/${id}/assign`, body),
   escalate: (id: string, reason: string) => api.post(`/api/complaints/${id}/escalate`, { reason }),
-  attach: (id: string, file: File, kind = "report") => api.upload(`/api/complaints/${id}/attachments`, file, kind),
+  attach: (id: string, file: File, kind = "report", keepPrivate = false) =>
+    api.upload(`/api/complaints/${id}/attachments`, file, kind, keepPrivate),
   notifications: () => api.get<Page<NotificationItem>>("/api/notifications"),
   readNotification: (id: string) => api.post(`/api/notifications/${id}/read`),
   readAll: () => api.post("/api/notifications/read-all"),
   classify: (body: unknown) => api.post("/api/ai/classify", body),
+  classifyAttachments: (body: { title: string; description: string; locality?: string }, files: File[]) => {
+    const data = new FormData();
+    data.append("title", body.title);
+    data.append("description", body.description);
+    data.append("locality", body.locality || "");
+    for (const file of files) data.append("files", file, file.name);
+    return request<Record<string, unknown>>("/api/ai/classify-attachments", { method: "POST", body: data });
+  },
   chat: (body: unknown) =>
     api.post<{
       reply: string;
       ai_generated: boolean;
       disclaimer: string;
-      public_reports: Array<{ id: string; reference: string; title: string; summary: string; status: string; locality: string }>;
-      my_reports: Array<{ id: string; reference: string; title: string; summary: string; status: string; locality: string }>;
+      public_reports: Array<{ id: string; reference: string; title: string; summary?: string; status?: string; locality: string; promotes?: number }>;
+      my_reports: Array<{ id: string; reference: string; title: string; summary: string; status: string; locality: string; promotes?: number }>;
       weather: { available: boolean; summary?: string; temperature_c?: number | null; message?: string } | null;
     }>("/api/ai/chat", body),
   analytics: () => api.get<Analytics>("/api/admin/analytics"),

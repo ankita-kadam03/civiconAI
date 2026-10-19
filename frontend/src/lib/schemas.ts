@@ -22,7 +22,6 @@ export const reportSchema = z.object({
   latitude: z.number().min(-90).max(90).optional(),
   longitude: z.number().min(-180).max(180).optional(),
   occurred_at: z.string().optional(),
-  is_public: z.boolean().default(true),
 });
 
 export type ReportValues = z.infer<typeof reportSchema>;
