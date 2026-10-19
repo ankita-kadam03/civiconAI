@@ -2,12 +2,13 @@
 
 - Passwords are bcrypt-hashed. JWT access tokens expire in minutes; refresh tokens last days.
 - Role checks happen on the server. Citizens cannot assign themselves `OFFICER` or `ADMIN`.
-- Internal notes, private attachments, and exact addresses are omitted from public incident payloads.
+- Every issue and its location are public. Signed-out visitors see the issue, location, and promote count; signed-in users also see status, brief summary, assigned officer name, municipality, non-private attachments, and conversations.
+- AI summaries/classifications, image inference, contact phone numbers, and private attachments are restricted to the reporter and authorized officials (department officers and administrators). The attachment privacy option hides an image from other users, but not from its reporter or authorized officials.
 - File uploads are type- and size-limited (images, 8 MB). Object names are random.
 - Rate limits apply globally and more tightly on login, signup, classify, and chat.
-- Request bodies above 12 MB are rejected.
+- Requests are limited to 12 MB except report-image multipart submissions and image classification, which allow up to 34 MB to accommodate four images of up to 8 MB each.
 - Audit logs redact keys whose names look like secrets.
-- AI prompts send title, short description, and locality — not passwords, emails, or phone numbers.
+- Gemini receives the report title, description, locality, and attached images for classification and image inference — not passwords, emails, or phone numbers. Marking an image private restricts image retrieval by other users; it does not exclude it from Gemini analysis.
 
 If a credential was shared outside env files, rotate it:
 

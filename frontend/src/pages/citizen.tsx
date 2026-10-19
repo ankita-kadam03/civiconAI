@@ -36,7 +36,7 @@ export function CitizenDashboard() {
     endpoints.publicComplaints("?page_size=6").then((res) => setNearby(res.items)).catch(() => setNearby([]));
     endpoints.savedLocations().then((res) => setPlaces(res.items)).catch(() => setPlaces([]));
   }, []);
-  const open = items.filter((i) => !["RESOLVED", "CLOSED", "REJECTED", "closed", "closed_unverified"].includes(i.status));
+  const open = items.filter((i) => !["RESOLVED", "CLOSED", "REJECTED", "closed", "closed_unverified"].includes(i.status || ""));
   return (
     <div className="space-y-6">
       <Card className="bg-gradient-to-r from-sky via-white to-mint">
@@ -160,13 +160,16 @@ export function ReportPage() {
   const [categories, setCategories] = useState<Category[]>([]);
   const [departments, setDepartments] = useState<Department[]>([]);
   const [files, setFiles] = useState<File[]>([]);
+  const [keepAttachmentsPrivate, setKeepAttachmentsPrivate] = useState(false);
   const [suggestion, setSuggestion] = useState<Record<string, unknown> | null>(null);
+  const [classificationToken, setClassificationToken] = useState("");
   const [classifyFailed, setClassifyFailed] = useState(false);
+  const [classifying, setClassifying] = useState(false);
   const [created, setCreated] = useState<Complaint | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const form = useForm<ReportValues>({
     resolver: zodResolver(reportSchema),
-    defaultValues: { title: "", description: "", category_id: "", locality: "", is_public: true },
+    defaultValues: { title: "", description: "", category_id: "", locality: "" },
   });
   const values = form.watch();
 
@@ -174,10 +177,6 @@ export function ReportPage() {
     endpoints.categories().then(setCategories).catch(() => undefined);
     endpoints.departments().then(setDepartments).catch(() => undefined);
   }, []);
-
-  useEffect(() => {
-    if (step === 5) void suggest();
-  }, [step, files.length]);
 
   const selectedCategory = categories.find((c) => c.id === values.category_id);
   const selectedDept =
@@ -189,20 +188,22 @@ export function ReportPage() {
   async function suggest() {
     const current = form.getValues();
     if ((current.title || "").trim().length < 3 || (current.description || "").trim().length < 8) return;
+    setClassifying(true);
     try {
-      const res = (await endpoints.classify({
+      const res = await endpoints.classifyAttachments({
         title: current.title,
         description: current.description,
         locality: current.locality,
-        latitude: current.latitude,
-        longitude: current.longitude,
-        photo_count: files.length,
-      })) as Record<string, unknown>;
+      }, files);
       setSuggestion(res);
+      setClassificationToken(typeof res.classification_token === "string" ? res.classification_token : "");
       setClassifyFailed(res.ai_generated === false);
     } catch {
       setSuggestion(null);
+      setClassificationToken("");
       setClassifyFailed(true);
+    } finally {
+      setClassifying(false);
     }
   }
 
@@ -210,22 +211,11 @@ export function ReportPage() {
     if (submitting) return;
     setSubmitting(true);
     try {
-      const incident = await endpoints.createComplaint({
+      const incident = await endpoints.createComplaintWithAttachments({
         ...data,
         photo_count: files.length,
         occurred_at: data.occurred_at ? new Date(data.occurred_at).toISOString() : undefined,
-      });
-      const uploadErrors: string[] = [];
-      for (const file of files) {
-        try {
-          await endpoints.attach(incident.id, file, "report");
-        } catch (err) {
-          uploadErrors.push(err instanceof Error ? err.message : "Upload failed");
-        }
-      }
-      if (uploadErrors.length) {
-        toast(`Report ${incident.reference} saved; some photos did not upload.`, "info");
-      }
+      }, files, keepAttachmentsPrivate, classificationToken || undefined);
       setCreated(incident);
     } catch (err) {
       toast(err instanceof Error ? err.message : "Could not submit", "err");
@@ -344,9 +334,10 @@ export function ReportPage() {
               if (next.address) form.setValue("address", next.address);
             }}
           />
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" {...form.register("is_public")} defaultChecked /> Share a public summary
-          </label>
+          <p className="rounded-2xl bg-foam p-3 text-sm text-navy/75 dark:bg-slate-800 dark:text-slate-300">
+            Civic issues are public. Visitors who are not signed in can see the issue and locality. Signed-in users can
+            also see its status, brief summary, assigned officer name, and municipality.
+          </p>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(2)}>
               Back
@@ -370,12 +361,34 @@ export function ReportPage() {
           ) : null}
           <FileUpload files={files} onChange={setFiles} max={4} />
           <ReportPhotoStrip files={files} label="Preview" />
+          <div className="rounded-2xl bg-foam p-3 text-sm dark:bg-slate-800">
+            <label className="flex items-start gap-2 font-semibold text-navy dark:text-white">
+              <input
+                type="checkbox"
+                checked={keepAttachmentsPrivate}
+                onChange={(event) => setKeepAttachmentsPrivate(event.target.checked)}
+                className="mt-1"
+              />
+              Keep attachment private to officials
+            </label>
+            <p className="mt-1 pl-6 text-navy/70 dark:text-slate-300">
+              Off by default: signed-in users can view the photos. When checked, only you and authorized municipal
+              officials can view them. Gemini still analyzes attached photos to create the summary and image inference.
+            </p>
+          </div>
           <div className="flex gap-2">
             <Button type="button" variant="ghost" onClick={() => setStep(3)}>
               Back
             </Button>
-            <Button type="button" onClick={() => setStep(5)}>
-              Review
+            <Button
+              type="button"
+              disabled={classifying}
+              onClick={async () => {
+                await suggest();
+                setStep(5);
+              }}
+            >
+              {classifying ? "Analysing report and images…" : "Review"}
             </Button>
           </div>
         </Card>
@@ -394,6 +407,18 @@ export function ReportPage() {
           ) : null}
           <h2 className="text-xl font-bold dark:text-white">{values.title}</h2>
           <p className="text-navy/70 dark:text-slate-300">{values.description}</p>
+          {suggestion?.summary ? (
+            <div className="rounded-2xl bg-mint/40 p-3 text-sm dark:bg-teal/10">
+              <p className="font-semibold text-navy dark:text-white">AI summary</p>
+              <p className="mt-1 text-navy/80 dark:text-slate-200">{String(suggestion.summary)}</p>
+            </div>
+          ) : null}
+          {files.length && suggestion?.attachment_inference ? (
+            <div className="rounded-2xl bg-sky/50 p-3 text-sm dark:bg-sky/10">
+              <p className="font-semibold text-navy dark:text-white">Attached Documents inference</p>
+              <p className="mt-1 text-navy/80 dark:text-slate-200">{String(suggestion.attachment_inference)}</p>
+            </div>
+          ) : null}
           <p className="text-sm dark:text-slate-300">{values.locality}</p>
           <ReportPhotoStrip files={files} />
           <div className="rounded-2xl bg-foam p-3 text-sm dark:bg-slate-800/80">
@@ -412,7 +437,7 @@ export function ReportPage() {
           {classifyFailed ? (
             <div className="rounded-2xl border border-amber-200/80 bg-amber-50/80 p-3 text-sm dark:border-amber-500/30 dark:bg-amber-950/30">
               <p className="font-semibold text-navy dark:text-white">AI summary unavailable</p>
-              <p className="mt-1 text-navy/70 dark:text-slate-300">Your description below will be submitted as-is for officers.</p>
+              <p className="mt-1 text-navy/70 dark:text-slate-300">Your original description will be kept. Gemini will be retried when you submit.</p>
               <p className="mt-2 rounded-xl bg-white/80 p-2 text-navy/90 dark:bg-slate-900/60 dark:text-slate-200">{values.description}</p>
             </div>
           ) : null}
@@ -480,7 +505,7 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
     user?.role === "CITIZEN" && (item?.reporter_id === user?.id || item?.reporter?.id === user?.id);
   const isPersonal = isOwnerCitizen || privileged;
   const showTimeline = isPersonal;
-  const showOfficerTriage = privileged && !isOwnerCitizen;
+  const showOfficerTriage = Boolean(item?.ai_summary);
 
   async function load() {
     const doc = await endpoints.complaint(id);
@@ -503,7 +528,7 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
   }, [id]);
 
   if (!item) return <Skeleton className="h-64" />;
-  const next = NEXT_STATUSES[item.status] || [];
+  const next = item.status ? NEXT_STATUSES[item.status] || [] : [];
 
   async function confirmDeleteReport() {
     if (!item) return;
@@ -569,41 +594,51 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
           </div>
           <div className="mt-3 flex flex-wrap gap-2">
             <StatusBadge status={item.status} />
-            <SeverityBadge severity={item.severity} />
+            {item.severity ? <SeverityBadge severity={item.severity} /> : null}
             {item.priority?.label ? <span className="chip bg-sky text-navy">{item.priority.label} {item.priority.score}</span> : null}
           </div>
           <SlaTimer ack={item.sla?.ack_due} resolve={item.sla?.resolve_due} />
           {item.department?.name ? <p className="text-sm text-navy/60">Routed to {item.department.name}</p> : null}
-          {privileged && item.reporter?.phone ? (
+          {item.assignee?.display_name ? (
+            <p className="text-sm text-navy/70">Assigned officer: {item.assignee.display_name}</p>
+          ) : null}
+          {item.municipality_name ? (
+            <p className="text-sm text-navy/70">Municipality: {item.municipality_name}</p>
+          ) : null}
+          {item.reporter?.phone ? (
             <p className="text-sm font-medium text-navy/80 dark:text-slate-200">
               Reporter: {item.reporter.display_name} · <a href={`tel:${item.reporter.phone}`} className="text-teal">{item.reporter.phone}</a>
             </p>
           ) : null}
-          {isOwnerCitizen && item.assignee?.phone ? (
+          {item.assignee?.phone ? (
             <p className="text-sm font-medium text-navy/80 dark:text-slate-200">
               Assigned officer: {item.assignee.display_name} · <a href={`tel:${item.assignee.phone}`} className="text-teal">{item.assignee.phone}</a>
             </p>
           ) : null}
-          <p className="text-base leading-relaxed text-navy/80 dark:text-slate-200">{item.description}</p>
+          <p className="text-base leading-relaxed text-navy/80 dark:text-slate-200">
+            {isPersonal ? item.description : item.summary || item.description}
+          </p>
           <p className="flex items-center gap-2 text-sm font-medium text-navy/70 dark:text-slate-300">
             <MapPin size={16} className="shrink-0 text-teal" aria-hidden /> {item.locality}
           </p>
-          {showOfficerTriage && item.severity ? (
+          {showOfficerTriage ? (
             <div className="rounded-2xl bg-foam p-4 text-sm dark:bg-slate-800">
-              <p className="font-semibold">Officer triage</p>
+              <p className="font-semibold">AI summary and classification</p>
+              {item.ai_summary ? <p className="mt-2 text-navy/80 dark:text-slate-200">{item.ai_summary}</p> : null}
               <p className="mt-2 flex flex-wrap items-center gap-2">
-                Urgency: <SeverityBadge severity={item.severity} />
-                {item.department?.code ? <span className="text-navy/70">· {item.department.code}</span> : null}
+                {item.ai_category_slug ? <span>Category: {item.ai_category_slug}</span> : null}
+                {item.ai_severity ? <span>· Severity: {item.ai_severity}</span> : null}
+                {item.ai_department_code ? <span>· Department: {item.ai_department_code}</span> : null}
               </p>
               {item.ai_rationale && item.ai_rationale !== "No Summary" ? (
-                <p className="mt-2 text-navy/70">{item.ai_rationale}</p>
-              ) : (
-                <p className="mt-2 rounded-lg bg-white/60 p-2 text-navy/80 dark:bg-slate-900/50">
-                  <span className="font-semibold">Citizen description: </span>
-                  {item.description}
+                <p className="mt-2 text-navy/70">Reason: {item.ai_rationale}</p>
+              ) : null}
+              {item.attachment_inference ? (
+                <p className="mt-2 text-navy/80 dark:text-slate-200">
+                  <strong>Attached Documents inference:</strong> {item.attachment_inference}
                 </p>
-              )}
-              <p className="mt-2 text-xs text-navy/50">Review citizen photos below. Override status or assignment anytime.</p>
+              ) : null}
+              {privileged ? <p className="mt-2 text-xs text-navy/50">Review the attachments below. Override status or assignment anytime.</p> : null}
             </div>
           ) : null}
           {isOwnerCitizen && item.similar?.length ? (
@@ -649,7 +684,10 @@ export function IncidentDetailPage({ base = "/app/reports" }: { base?: string })
             {(item.attachments || []).length ? (
               (item.attachments || []).map((att) =>
                 images[att.id] ? (
-                  <img key={att.id} src={images[att.id]} alt="" className="max-h-56 w-full rounded-2xl object-cover" />
+                  <div key={att.id}>
+                    <img src={images[att.id]} alt={att.original_name || "Issue attachment"} className="max-h-56 w-full rounded-2xl object-cover" />
+                    {att.is_private ? <p className="mt-1 text-xs text-navy/60">Private to you and authorized officials</p> : null}
+                  </div>
                 ) : (
                   <Skeleton key={att.id} className="h-40" />
                 ),

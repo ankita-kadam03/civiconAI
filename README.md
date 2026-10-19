@@ -70,16 +70,24 @@ Open <http://localhost:5173>. A Google Maps browser key is needed for map featur
 | Google resource | Configure | What Civicon uses it for | If it is not configured |
 | --- | --- | --- | --- |
 | Firestore | `FIREBASE_PROJECT_ID` (falls back to `GOOGLE_CLOUD_PROJECT`); local ADC or Cloud Run service account | Persistent production database for users, issues, and application data | If neither project ID is set, the API requires `ALLOW_MEMORY_DB=true`; memory data is temporary and unsuitable for production |
-| Gemini API or Vertex AI | Backend `GEMINI_API_KEY`, **or** `GOOGLE_CLOUD_PROJECT` plus ADC/Vertex permissions; optional `GEMINI_MODEL` | AI issue classification and CiviChat responses | CiviChat uses its built-in fallback; with the default `REQUIRE_GEMINI=true`, AI classification is unavailable when Gemini cannot be reached |
+| Gemini API or Vertex AI | Backend `GEMINI_API_KEY`, **or** `GOOGLE_CLOUD_PROJECT` plus ADC/Vertex permissions; optional `GEMINI_MODEL` | AI issue summaries and classification, attached-image evidence inference, and CiviChat responses | CiviChat uses its built-in fallback; with the default `REQUIRE_GEMINI=true`, AI classification is unavailable when Gemini cannot be reached |
 | Google Maps Platform | `VITE_GOOGLE_MAPS_API_KEY` in `frontend/.env.local` or `.env.production`; enable Maps JavaScript API and Places if used | Browser maps and location selection/search | Map features do not load. This key is public in the built frontend: restrict it by website referrer and API |
 | Google Weather API | Backend `GOOGLE_SERVER_API_KEY`; enable Weather API | Current conditions and weather alerts, including location-based CiviChat weather | Weather information is unavailable. Keep this server key separate from the browser Maps key |
-| Cloud Storage | Backend `GCS_BUCKET`, project and ADC/IAM | Stores uploaded report attachments privately | The API falls back to local disk, which is not durable storage on Cloud Run |
+| Cloud Storage | Backend `GCS_BUCKET`, project and ADC/IAM | Stores uploaded report attachments; the API enforces who can retrieve each image | The API falls back to local disk, which is not durable storage on Cloud Run |
 | BigQuery | Backend `GOOGLE_CLOUD_PROJECT` and `BIGQUERY_DATASET`; dataset and IAM | Analytics copy of created and updated issues | Analytics sync is unavailable; by default readiness checks expect BigQuery unless `REQUIRE_BIGQUERY=false` |
 | Pub/Sub | Backend `GOOGLE_CLOUD_PROJECT` and `PUBSUB_TOPIC_EVENTS` (default `incident-events`); publisher IAM | Best-effort issue-created and status-changed events for downstream consumers | Event publishing is disabled or fails without blocking the core reporting flow |
 | Cloud Run | Deploy the API image and attach a runtime service account | Runs the FastAPI backend and accesses Google Cloud resources through ADC | Production API is not hosted |
 | Firebase Hosting | Deploys the built frontend; `VITE_API_BASE_URL` points to Cloud Run | Serves the static web application over HTTPS | Frontend is not hosted there |
 
 Google Cloud APIs, billing where applicable, credentials, and IAM permissions must be enabled/configured in the selected project for the corresponding integration to work.
+
+## Report and attachment visibility
+
+Every issue and its location are public; the report form does not offer a private-issue option. Visitors who are not signed in can see the issue, its location, and its promote count. After signing in, users can also see the status, brief report summary, assigned officer's name, municipality, promote count, non-private attachments, and the report conversation.
+
+The report form's **Keep attachment private to officials** option is unchecked by default. When checked, the photo is visible to its reporter and authorized officials (officers in the responsible department and administrators), but not to other signed-in users or signed-out visitors. Without the option, any signed-in user can view the attachment; signed-out visitors cannot view attachments. Conversations require sign-in.
+
+The reporter and authorized officials can additionally see the AI summary and classification, image inference, both report contact phone numbers, and private attachments. Gemini analyzes attached images to produce the inference even when the stored attachment is marked private; the privacy option controls who can retrieve the stored image, not whether the configured Gemini API or Vertex AI can process it. This uses the existing Gemini/Vertex configuration; no additional key or service is required. Image requests may increase AI usage and cost. See [Security and privacy](./docs/security.md).
 
 ### Production setup order
 

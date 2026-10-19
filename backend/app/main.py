@@ -22,6 +22,7 @@ from app.seed import seed_if_needed
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
 log = logging.getLogger("civicon")
 MAX_BODY_BYTES = 12 * 1024 * 1024
+MAX_REPORT_MULTIPART_BYTES = 34 * 1024 * 1024
 
 
 @asynccontextmanager
@@ -86,7 +87,13 @@ def create_app() -> FastAPI:
         rid = request.headers.get("x-request-id") or uuid.uuid4().hex
         request.state.request_id = rid
         length = request.headers.get("content-length")
-        if length and length.isdigit() and int(length) > MAX_BODY_BYTES:
+        multipart_report = (
+            request.method == "POST"
+            and request.url.path in {"/api/complaints", "/api/ai/classify-attachments"}
+            and request.headers.get("content-type", "").startswith("multipart/form-data")
+        )
+        max_body_bytes = MAX_REPORT_MULTIPART_BYTES if multipart_report else MAX_BODY_BYTES
+        if length and length.isdigit() and int(length) > max_body_bytes:
             from fastapi.responses import JSONResponse
 
             return JSONResponse(

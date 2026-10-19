@@ -23,6 +23,9 @@ KEYWORD_MAP = [
 
 SYSTEM_CLASSIFY = """You classify civic infrastructure complaints for a municipality.
 Fill every JSON field. summary: one or two sentences for an officer.
+When attached images are supplied, use them as evidence for attachment_inference. Keep it to at most two short
+sentences. If an image does not relate to the issue, say "Image attached seems irrelevant to the issue reported."
+If uncertain, say that clearly instead of guessing. If no images are supplied, leave attachment_inference empty.
 Do not include personal names, emails, phones, or exact private addresses.
 Never invent official policy or claim that authorities have been contacted.
 """
@@ -117,7 +120,7 @@ class AIService:
     def _generate_once(
         self,
         system: str,
-        user: str,
+        user: str | list[Any],
         settings,
         *,
         response_schema: type | None = None,
@@ -182,7 +185,11 @@ class AIService:
             return self._generate_once(system, user, settings, response_schema=response_schema)
         return None, None
 
-    def _generate_structured(self, system: str, user: str) -> tuple[ClassificationLLMOut | None, str | None]:
+    def _generate_structured(
+        self,
+        system: str,
+        user: str | list[Any],
+    ) -> tuple[ClassificationLLMOut | None, str | None]:
         self.reload_from_settings()
         if not self._client:
             if self._activate_vertex_fallback():
@@ -215,6 +222,7 @@ class AIService:
         locality: str | None = None,
         *,
         photo_count: int = 0,
+        images: list[tuple[bytes, str]] | None = None,
     ) -> dict:
         self.reload_from_settings()
         settings = get_settings()
@@ -225,22 +233,40 @@ class AIService:
                 "summary": title.strip()[:180],
                 "department_code": "GEN",
                 "rationale": "Set GEMINI_API_KEY in backend/.env and restart the API (or use Vertex via GOOGLE_CLOUD_PROJECT + ADC).",
+                "attachment_inference": "",
                 "source": "error",
                 "ai_generated": False,
                 "error": "Gemini not configured",
             }
         heuristic = heuristic_classify(title, description)
+        image_parts = images or []
         photo_note = ""
-        if photo_count > 0:
-            photo_note = f"\nPhotos attached: {photo_count}. Consider visual evidence in severity (officers will review images).\n"
+        if image_parts:
+            photo_note = (
+                f"\nPhotos attached: {len(image_parts)}. "
+                "Use the supplied images as visual evidence and do not infer details that are not visible.\n"
+            )
+        elif photo_count > 0:
+            photo_note = (
+                f"\nThe report mentions {photo_count} photos, but no image data was supplied. "
+                "Do not infer or describe visual evidence.\n"
+            )
         prompt = (
             f"Title: {title[:140]}\n"
             f"Description: {description[:800]}\n"
             f"Locality: {(locality or 'unspecified')[:80]}\n"
             f"{photo_note}"
         )
+        contents: str | list[Any] = prompt
+        if image_parts:
+            from google.genai import types
+
+            contents = [
+                prompt,
+                *(types.Part.from_bytes(data=data, mime_type=mime_type) for data, mime_type in image_parts),
+            ]
         fallback_title = title.strip()[:180]
-        structured, text = self._generate_structured(SYSTEM_CLASSIFY, prompt)
+        structured, text = self._generate_structured(SYSTEM_CLASSIFY, contents)
         parsed = (
             classification_from_llm(structured, fallback_title=fallback_title)
             if structured
@@ -249,7 +275,7 @@ class AIService:
         if not parsed and text:
             parsed = _parse_classification(text, fallback_title=fallback_title)
         if not parsed:
-            structured, text = self._generate_structured(SYSTEM_CLASSIFY, prompt)
+            structured, text = self._generate_structured(SYSTEM_CLASSIFY, contents)
             if structured:
                 parsed = classification_from_llm(structured, fallback_title=fallback_title)
             elif text:
@@ -267,6 +293,8 @@ class AIService:
                 return heuristic
             heuristic["source"] = "heuristic"
             heuristic["ai_generated"] = False
+            if image_parts:
+                heuristic["attachment_inference"] = "Image inference unavailable; an official should review the attachment."
             return heuristic
         if not parsed:
             log.warning(
@@ -282,7 +310,11 @@ class AIService:
                 return heuristic
             heuristic["source"] = "heuristic"
             heuristic["ai_generated"] = False
+            if image_parts:
+                heuristic["attachment_inference"] = "Image inference unavailable; an official should review the attachment."
             return heuristic
+        if image_parts and not parsed.get("attachment_inference"):
+            parsed["attachment_inference"] = "Image inference was inconclusive; an official should review the attachment."
         parsed["source"] = self.mode
         parsed["ai_generated"] = True
         return parsed

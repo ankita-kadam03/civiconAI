@@ -41,6 +41,14 @@ class ClassificationLLMOut(BaseModel):
         max_length=800,
         description="Brief reason for category and severity.",
     )
+    attachment_inference: str = Field(
+        default="",
+        max_length=300,
+        description=(
+            "When images are attached, summarize visual evidence in no more than two short sentences. "
+            "Say the image appears irrelevant if it does not support the reported issue; say when uncertain."
+        ),
+    )
 
 ALLOWED_SLUGS = {
     "potholes",
@@ -87,6 +95,7 @@ def validate_classification(
     summary = str(raw.get("summary") or "").strip()
     dept = str(raw.get("department_code") or raw.get("department") or "").strip().upper()
     rationale = str(raw.get("rationale") or "").strip()
+    attachment_inference = str(raw.get("attachment_inference") or "").strip()
     if slug not in slugs:
         slug = "other"
     if severity not in SEVERITIES:
@@ -101,12 +110,15 @@ def validate_classification(
         dept = "GEN"
     if len(rationale) > 800:
         rationale = rationale[:800]
+    if len(attachment_inference) > 300:
+        attachment_inference = attachment_inference[:300]
     return {
         "category_slug": slug,
         "severity": severity,
         "summary": summary,
         "department_code": dept,
         "rationale": rationale or "Generated recommendation",
+        "attachment_inference": attachment_inference,
     }
 
 

@@ -3,7 +3,8 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends, Query
 
 from app.db import Database
-from app.deps import db_dep, optional_user
+from app.deps import db_dep, optional_user, principal_of
+from app.domain.rbac import can_view_internal_notes, can_view_report_sensitive
 from app.errors import AppError
 from app.serialize import complaint_public, dt, serialize_comments, user_has_promoted
 from app.services.storage import storage_service
@@ -11,14 +12,59 @@ from app.services.storage import storage_service
 router = APIRouter(tags=["public"])
 
 
-def _enrich(db: Database, doc: dict, include_internal: bool = False) -> dict:
+def _enrich(db: Database, doc: dict, user: dict | None = None) -> dict:
     cat = db.col("categories").find_one({"_id": doc.get("category_id")}) or {}
     dept = db.col("departments").find_one({"_id": doc.get("department_id")}) or {}
-    extras = {
-        "category": {"id": cat.get("_id"), "name": cat.get("name"), "slug": cat.get("slug"), "icon": cat.get("icon")},
-        "department": {"id": dept.get("_id"), "name": dept.get("name"), "code": dept.get("code")} if dept else None,
-    }
-    return complaint_public(doc, include_internal=include_internal, extras=extras)
+    principal = principal_of(user) if user else None
+    participant = bool(principal and can_view_report_sensitive(principal, doc))
+    assigned = (
+        db.col("users").find_one({"_id": doc.get("assigned_officer_id")})
+        if doc.get("assigned_officer_id")
+        else None
+    )
+    if not assigned and doc.get("claimed_by"):
+        assigned = db.col("users").find_one({"_id": doc.get("claimed_by")})
+    reporter = db.col("users").find_one({"_id": doc.get("reporter_id")}) if participant else None
+    from app.services.regions import municipality_region
+
+    municipality = municipality_region(db) or {}
+    extras = {}
+    if user:
+        extras.update(
+            {
+                "assignee": (
+                    {
+                        "id": assigned.get("_id"),
+                        "display_name": assigned.get("display_name"),
+                        "phone": assigned.get("phone") if participant else None,
+                    }
+                    if assigned
+                    else None
+                ),
+                "reporter": (
+                    {
+                        "id": reporter.get("_id"),
+                        "display_name": reporter.get("display_name"),
+                        "phone": reporter.get("phone"),
+                    }
+                    if reporter
+                    else None
+                ),
+                "category": {
+                    "id": cat.get("_id"),
+                    "name": cat.get("name"),
+                    "slug": cat.get("slug"),
+                    "icon": cat.get("icon"),
+                },
+                "department": {
+                    "id": dept.get("_id"),
+                    "name": dept.get("name"),
+                    "code": dept.get("code"),
+                } if dept else None,
+                "municipality_name": municipality.get("name"),
+            }
+        )
+    return complaint_public(doc, signed_in=bool(user), include_internal=participant, extras=extras)
 
 
 @router.get("/api/public/categories")
@@ -81,16 +127,17 @@ def public_localities(db: Database = Depends(db_dep)):
 @router.get("/api/public/complaints")
 def public_complaints(
     db: Database = Depends(db_dep),
+    user: dict | None = Depends(optional_user),
     q: str | None = None,
     category: str | None = None,
     status: str | None = None,
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
 ):
-    query: dict = {"is_public": True}
-    if status:
+    query: dict = {}
+    if status and user:
         query["status"] = status
-    if category:
+    if category and user:
         cat = db.col("categories").find_one({"$or": [{"_id": category}, {"slug": category}]})
         if cat:
             query["category_id"] = cat["_id"]
@@ -100,7 +147,7 @@ def public_complaints(
         docs = [d for d in docs if needle in (d.get("title") or "").lower() or needle in (d.get("reference") or "").lower() or needle in (d.get("locality") or "").lower()]
     total = len(docs)
     start = (page - 1) * page_size
-    items = [_enrich(db, d, False) for d in docs[start : start + page_size]]
+    items = [_enrich(db, d, user) for d in docs[start : start + page_size]]
     return {"items": items, "total": total, "page": page, "page_size": page_size}
 
 
@@ -110,36 +157,62 @@ def public_complaint(
     db: Database = Depends(db_dep),
     user: dict | None = Depends(optional_user),
 ):
-    doc = db.col("complaints").find_one({"$or": [{"reference": reference.upper()}, {"_id": reference}], "is_public": True})
+    doc = db.col("complaints").find_one({"$or": [{"reference": reference.upper()}, {"_id": reference}]})
     if not doc:
         raise AppError("Incident not found", 404, "NOT_FOUND")
-    history = list(db.col("complaint_status_history").find({"incident_id": doc["_id"]}).sort("created_at", 1))
-    attachments = [
-        a
-        for a in db.col("attachments").find({"incident_id": doc["_id"], "is_private": False})
-    ]
-    comments = list(db.col("comments").find({"incident_id": doc["_id"], "is_internal": False}).sort("created_at", 1))
-    body = _enrich(db, doc, False)
-    body["history"] = [
-        {"id": h["_id"], "from_status": h.get("from_status"), "to_status": h.get("to_status"), "created_at": dt(h.get("created_at"))}
-        for h in history
-    ]
-    body["attachments"] = [{"id": a["_id"], "kind": a.get("kind")} for a in attachments]
-    body["comments"] = serialize_comments(db, comments)
+    body = _enrich(db, doc, user)
+    if user:
+        principal = principal_of(user)
+        participant = can_view_report_sensitive(principal, doc)
+        history = list(db.col("complaint_status_history").find({"incident_id": doc["_id"]}).sort("created_at", 1))
+        attachments = list(db.col("attachments").find({"incident_id": doc["_id"]}))
+        attachments = [
+            att for att in attachments
+            if not att.get("is_private") or participant
+        ]
+        comments = list(db.col("comments").find({"incident_id": doc["_id"]}).sort("created_at", 1))
+        if not can_view_internal_notes(principal):
+            comments = [comment for comment in comments if not comment.get("is_internal")]
+        body["history"] = [
+            {
+                "id": item["_id"],
+                "from_status": item.get("from_status"),
+                "to_status": item.get("to_status"),
+                "created_at": dt(item.get("created_at")),
+            }
+            for item in history
+        ]
+        body["attachments"] = [
+            {
+                "id": att["_id"],
+                "kind": att.get("kind"),
+                "is_private": bool(att.get("is_private")),
+            }
+            for att in attachments
+        ]
+        body["comments"] = serialize_comments(db, comments)
     if user:
         body["viewer_has_promoted"] = user_has_promoted(db, doc["_id"], user["_id"])
     return body
 
 
 @router.get("/api/public/attachments/{attachment_id}")
-def public_attachment(attachment_id: str, db: Database = Depends(db_dep)):
+def public_attachment(
+    attachment_id: str,
+    user: dict = Depends(optional_user),
+    db: Database = Depends(db_dep),
+):
     from fastapi.responses import Response
 
+    if not user:
+        raise AppError("Sign in to view report attachments", 401, "AUTH_REQUIRED")
     att = db.col("attachments").find_one({"_id": attachment_id})
-    if not att or att.get("is_private", True):
+    if not att:
         raise AppError("Attachment not found", 404, "NOT_FOUND")
     incident = db.col("complaints").find_one({"_id": att["incident_id"]})
-    if not incident or not incident.get("is_public"):
+    if not incident:
+        raise AppError("Attachment not found", 404, "NOT_FOUND")
+    if att.get("is_private") and not can_view_report_sensitive(principal_of(user), incident):
         raise AppError("Attachment not found", 404, "NOT_FOUND")
     data = storage_service.load(att["object_key"])
     return Response(content=data, media_type=att.get("mime_type") or "application/octet-stream")

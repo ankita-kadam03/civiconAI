@@ -9,9 +9,10 @@ type ChatReport = {
   id: string;
   reference: string;
   title: string;
-  summary: string;
-  status: string;
+  summary?: string;
+  status?: string;
   locality: string;
+  promotes?: number;
 };
 
 type ChatMessage = {
@@ -146,9 +147,12 @@ export function CiviChat() {
                           className="block rounded-xl border border-navy/10 bg-white p-2 text-xs text-navy hover:border-teal dark:border-white/10 dark:bg-slate-900 dark:text-white"
                         >
                           <span className="font-semibold">{report.reference} · {report.title}</span>
-                          <span className="mt-1 block">{report.summary}</span>
+                          {report.summary ? <span className="mt-1 block">{report.summary}</span> : null}
                           <span className="mt-1 block text-navy/60 dark:text-slate-400">
-                            {report.status} · {report.locality}
+                            {report.status ? `${report.status} · ` : ""}{report.locality}
+                          </span>
+                          <span className="mt-1 block text-navy/60 dark:text-slate-400">
+                            Promotes: {report.promotes ?? 0}
                           </span>
                         </Link>
                       ))}

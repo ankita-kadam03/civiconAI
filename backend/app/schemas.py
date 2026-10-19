@@ -98,7 +98,6 @@ class ComplaintCreate(BaseModel):
     latitude: float | None = Field(default=None, ge=-90, le=90)
     longitude: float | None = Field(default=None, ge=-180, le=180)
     occurred_at: datetime | None = None
-    is_public: bool = True
     photo_count: int | None = Field(default=0, ge=0, le=20)
 
     @field_validator("title", "description", "locality")

@@ -1,5 +1,5 @@
 import { MapPin } from "lucide-react";
-import { useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { Link, useLocation, useParams } from "react-router-dom";
 import { IncidentCard, PromoteButton, StatusBadge } from "../components/incidents";
 import { CategoryIconBadge } from "../lib/category-icons";
@@ -8,7 +8,7 @@ import { useAuth } from "../lib/auth";
 import { useToast } from "../lib/toast";
 import { HomePreviewMap, IncidentMap } from "../components/maps";
 import { Button, Card, EmptyState, Input, Skeleton, Textarea } from "../components/ui";
-import { endpoints } from "../lib/api";
+import { endpoints, fetchAttachmentBlob } from "../lib/api";
 import { PUBLIC_STATUS_FILTERS } from "../lib/format";
 import type { Complaint } from "../lib/types";
 
@@ -52,6 +52,8 @@ function LandingSection({
 }
 
 function ExploreIncidentsBlock({ compact }: { compact?: boolean }) {
+  const { user } = useAuth();
+  const signedIn = Boolean(user?.id);
   const [q, setQ] = useState("");
   const [status, setStatus] = useState("");
   const [items, setItems] = useState<Complaint[]>([]);
@@ -61,7 +63,7 @@ function ExploreIncidentsBlock({ compact }: { compact?: boolean }) {
   useEffect(() => {
     const params = new URLSearchParams();
     if (q) params.set("q", q);
-    if (status) params.set("status", status);
+    if (status && signedIn) params.set("status", status);
     if (compact) params.set("page_size", "6");
     setLoading(true);
     endpoints
@@ -69,25 +71,27 @@ function ExploreIncidentsBlock({ compact }: { compact?: boolean }) {
       .then((res) => setItems(res.items))
       .catch(() => setItems([]))
       .finally(() => setLoading(false));
-  }, [q, status, compact]);
+  }, [q, status, compact, signedIn]);
 
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap">
         <Input placeholder="Search title, locality or CIV reference" value={q} onChange={(e) => setQ(e.target.value)} className="w-full sm:max-w-sm" />
-        <select
-          className="w-full min-w-0 rounded-2xl border border-navy/10 bg-white px-3 py-2.5 text-sm font-medium text-navy shadow-sm sm:min-w-[11rem] sm:w-auto dark:border-white/15 dark:bg-slate-900 dark:text-slate-100"
-          value={status}
-          onChange={(e) => setStatus(e.target.value)}
-          aria-label="Filter by status"
-        >
-          {PUBLIC_STATUS_FILTERS.map((opt) => (
-            <option key={opt.value || "all"} value={opt.value}>
-              {opt.label}
-            </option>
-          ))}
-        </select>
-        {!compact ? (
+        {user ? (
+          <select
+            className="w-full min-w-0 rounded-2xl border border-navy/10 bg-white px-3 py-2.5 text-sm font-medium text-navy shadow-sm sm:min-w-[11rem] sm:w-auto dark:border-white/15 dark:bg-slate-900 dark:text-slate-100"
+            value={status}
+            onChange={(e) => setStatus(e.target.value)}
+            aria-label="Filter by status"
+          >
+            {PUBLIC_STATUS_FILTERS.map((opt) => (
+              <option key={opt.value || "all"} value={opt.value}>
+                {opt.label}
+              </option>
+            ))}
+          </select>
+        ) : null}
+        {!compact && user ? (
           <div className="flex gap-2">
             <Button variant={view === "list" ? "primary" : "ghost"} onClick={() => setView("list")}>
               List
@@ -99,7 +103,7 @@ function ExploreIncidentsBlock({ compact }: { compact?: boolean }) {
         ) : null}
       </div>
       {loading ? <Skeleton className="h-48" /> : null}
-      {!loading && !compact && view === "map" ? <IncidentMap incidents={items} /> : null}
+      {!loading && !compact && user && view === "map" ? <IncidentMap incidents={items} /> : null}
       {!loading && (compact || view === "list") ? (
         items.length ? (
           <div className="grid gap-4 md:grid-cols-2">
@@ -108,7 +112,7 @@ function ExploreIncidentsBlock({ compact }: { compact?: boolean }) {
             ))}
           </div>
         ) : (
-          <EmptyState title="No public incidents yet" body="When neighbours share reports, they will appear here." />
+          <EmptyState title="No reports yet" body="Reports will appear here as neighbours file them." />
         )
       ) : null}
     </div>
@@ -127,8 +131,8 @@ export function HomePage() {
   const faqs = [
     ["Do I need an account?", "Yes, so you can track reports that belong to you and receive updates."],
     ["Does Civicon contact the municipality for me?", "No. Civicon records and routes reports. It never claims an agency was contacted automatically."],
-    ["How does AI support civic reporting?", "Gemini analyzes each report and produces a concise issue summary, category, severity, and responsible department to help teams triage and route reports."],
-    ["Are photos public?", "Report photos can appear on public pages. Resolution evidence stays private."],
+    ["How does AI support civic reporting?", "Gemini analyzes each report's title, description, and attached images to produce an issue summary, classification, and a short note about visual evidence. The reporter and authorized officials can review those AI results."],
+    ["Who can see my report and photos?", "Every issue and its location are public. Signed-out visitors see the issue, location, and promote count; signed-in users can also see status, summary, assigned officer, municipality, conversations, and non-private photos. Marked-private photos are visible to you and authorized officials only."],
   ];
 
   return (
@@ -163,7 +167,7 @@ export function HomePage() {
         </div>
       </section>
 
-      <LandingSection id="explore" title="Explore" subtitle="Public reports only. Private details stay with the people who need them.">
+      <LandingSection id="explore" title="Explore" subtitle="Every issue and its location are public. Sign in to see report status, summaries, and attachments.">
         <ExploreIncidentsBlock compact />
       </LandingSection>
 
@@ -185,7 +189,10 @@ export function HomePage() {
             Civicon AI brings residents, field officers, and municipal teams together around the issues that shape everyday life. Residents can submit a report with its location and supporting details, follow its timeline, explore public incidents, and help verify when a fix holds. Officers can review, assign, and update cases; administrators oversee service levels and escalations.
           </p>
           <p>
-            Gemini analyzes each report’s title and description to produce a concise issue summary, category, severity, and responsible department—giving teams richer context for triage and routing. Civicon also brings together community activity, issue priority, and service-level timelines to help surface what needs attention.
+            Gemini analyzes each report’s title, description, and attached images to produce an issue summary, category, severity, responsible department, and (when images are attached) a concise visual-evidence inference. The reporter and authorized municipal officials can review those AI results. Civicon also brings together community activity, issue priority, and service-level timelines to help surface what needs attention.
+          </p>
+          <p>
+            Every issue and its location are public. Visitors who are not signed in can see the issue, its location, and promote count. Signed-in users can also see status, a brief summary, the assigned officer’s name, municipality, conversations, and attachments not marked private. The reporter and authorized officials can additionally see AI results, report contact numbers, and private attachments. The “Keep attachment private to officials” choice is off by default; the reporter can still view their own marked-private photos. Gemini processes attached images for analysis regardless of that storage-visibility choice.
           </p>
           <p>
             Stay informed with real-time in-app notifications for report submissions, assignments, requests for more information, status changes, resolutions, and escalations. While signed in, the notification indicator refreshes automatically, so important progress is easy to spot. Install Civicon as a PWA on your phone to access the same in-app notifications on mobile.
@@ -227,33 +234,105 @@ export function PublicIncidentPage() {
   const [error, setError] = useState("");
   const [note, setNote] = useState("");
   const [promoted, setPromoted] = useState(false);
-  async function load() {
+  const [images, setImages] = useState<Record<string, string>>({});
+  const userId = user?.id;
+  const load = useCallback(async () => {
     const doc = await endpoints.publicComplaint(reference);
     setItem(doc);
     setPromoted(Boolean(doc.viewer_has_promoted));
-  }
+    if (userId) {
+      const loaded = await Promise.all(
+        (doc.attachments || []).map(async (attachment) => {
+          try {
+            return [attachment.id, await fetchAttachmentBlob(attachment.id)] as const;
+          } catch {
+            return null;
+          }
+        }),
+      );
+      setImages(Object.fromEntries(loaded.filter((entry): entry is readonly [string, string] => entry !== null)));
+    } else {
+      setImages({});
+    }
+  }, [reference, userId]);
   useEffect(() => {
     load().catch((err: Error) => setError(err.message));
-  }, [reference]);
+  }, [load]);
   if (error) return <EmptyState title="Not found" body={error} />;
   if (!item) return <Skeleton className="h-64" />;
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <Card className="space-y-4 p-6 md:p-8">
         <div className="flex items-start gap-3">
-          <CategoryIconBadge slugOrIcon={item.category?.icon || item.category?.slug} className="mt-1 h-11 w-11 rounded-2xl" size={22} />
+          {user ? (
+            <CategoryIconBadge slugOrIcon={item.category?.icon || item.category?.slug} className="mt-1 h-11 w-11 rounded-2xl" size={22} />
+          ) : null}
           <div className="min-w-0 flex-1">
             <p className="text-xs font-bold uppercase tracking-wide text-teal">{item.reference}</p>
             <h1 className="text-3xl font-extrabold text-navy dark:text-white">{item.title}</h1>
           </div>
         </div>
-        <StatusBadge status={item.status} />
-        <p className="text-base leading-relaxed text-navy/70 dark:text-slate-300">{item.description}</p>
+        {user && item.status ? <StatusBadge status={item.status} /> : null}
+        {user && (item.summary || item.description) ? (
+          <p className="text-base leading-relaxed text-navy/70 dark:text-slate-300">
+            {item.summary || item.description}
+          </p>
+        ) : null}
         <p className="flex items-center gap-2 text-sm font-medium text-navy/80 dark:text-slate-200">
           <MapPin size={16} className="shrink-0 text-teal" aria-hidden />
           {item.locality}
         </p>
-        {(item.comments || []).length ? (
+        {user && item.municipality_name ? (
+          <p className="text-sm text-navy/70 dark:text-slate-300">Municipality: {item.municipality_name}</p>
+        ) : null}
+        {user && item.assignee?.display_name ? (
+          <p className="text-sm text-navy/70 dark:text-slate-300">
+            Assigned officer: {item.assignee.display_name}
+          </p>
+        ) : null}
+        {user && item.ai_summary ? (
+          <div className="rounded-2xl bg-mint/40 p-3 text-sm dark:bg-teal/10">
+            <p className="font-semibold text-navy dark:text-white">AI summary</p>
+            <p className="mt-1 text-navy/80 dark:text-slate-200">{item.ai_summary}</p>
+            {item.ai_category_slug || item.ai_severity || item.ai_department_code ? (
+              <p className="mt-2 text-navy/70 dark:text-slate-300">
+                AI classification: {item.ai_category_slug || "—"} · {item.ai_severity || "—"} · {item.ai_department_code || "—"}
+              </p>
+            ) : null}
+            {item.attachment_inference ? (
+              <p className="mt-2 text-navy/80 dark:text-slate-200">
+                <strong>Attached Documents inference:</strong> {item.attachment_inference}
+              </p>
+            ) : null}
+          </div>
+        ) : null}
+        {user && item.reporter?.phone ? (
+          <p className="text-sm text-navy/70 dark:text-slate-300">
+            Reporter mobile: <a className="text-teal" href={`tel:${item.reporter.phone}`}>{item.reporter.phone}</a>
+          </p>
+        ) : null}
+        {user && item.assignee?.phone ? (
+          <p className="text-sm text-navy/70 dark:text-slate-300">
+            Officer mobile: <a className="text-teal" href={`tel:${item.assignee.phone}`}>{item.assignee.phone}</a>
+          </p>
+        ) : null}
+        <p className="text-sm text-navy/70 dark:text-slate-300">Promotes: {item.counters?.promotes ?? 0}</p>
+        {user && (item.attachments || []).length ? (
+          <div className="space-y-3 border-t border-navy/10 pt-4 dark:border-white/10">
+            <h2 className="text-lg font-bold text-navy dark:text-white">Attachments</h2>
+            <div className="grid gap-3 sm:grid-cols-2">
+              {(item.attachments || []).map((attachment) => (
+                <div key={attachment.id} className="space-y-1">
+                  {images[attachment.id] ? (
+                    <img src={images[attachment.id]} alt={attachment.original_name || "Issue attachment"} className="max-h-64 w-full rounded-xl object-cover" />
+                  ) : <Skeleton className="h-40" />}
+                  {attachment.is_private ? <p className="text-xs text-navy/60">Private to you and authorized officials</p> : null}
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
+        {user && (item.comments || []).length ? (
           <div className="space-y-3 border-t border-navy/10 pt-4 dark:border-white/10">
             <h2 className="text-lg font-bold text-navy dark:text-white">Comments</h2>
             {(item.comments || []).map((c) => (
@@ -269,7 +348,6 @@ export function PublicIncidentPage() {
           <div className="space-y-3 border-t border-navy/10 pt-4 dark:border-white/10">
             <PromoteButton
               promoted={promoted}
-              count={item.counters?.promotes}
               onClick={async () => {
                 try {
                   await endpoints.promote(item.id);
@@ -316,7 +394,9 @@ export function PrivacyPage() {
   return (
     <div className="max-w-3xl space-y-3 text-navy/75">
       <h1 className="text-4xl font-extrabold text-navy dark:text-white">Privacy</h1>
-      <p>Public incident pages hide private addresses, internal notes and private attachments. Location is stored so officers can respond, not so strangers can visit your door.</p>
+      <p>Every issue and its location are public. Visitors who are not signed in can see the issue, location, and promote count. After signing in, users can also see status, brief summary, assigned officer name, municipality, non-private attachments, and conversations.</p>
+      <p>The reporter and authorized officials—officers in the responsible department and administrators—can see AI summaries and classifications, image inference, report contact phone numbers, and attachments marked private. The reporter can always see their own attachments. Signed-out visitors cannot view attachments or conversations.</p>
+      <p>Gemini analyzes attached images to help produce the report summary and visual-evidence inference. Marking an image private limits who can retrieve the stored image; it does not prevent the configured Gemini API or Vertex AI from processing it.</p>
       <p>Passwords are hashed. Access tokens expire. Cloud credentials stay on the server. Browser map keys must be restricted by website and API.</p>
     </div>
   );
